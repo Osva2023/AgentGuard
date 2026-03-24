@@ -1,0 +1,27 @@
+{
+  "name": "agentguard",
+  "version": "0.1.0",
+  "description": "Universal shell wrapper that intercepts dangerous commands from AI coding agents",
+  "type": "module",
+  "bin": {
+    "agentguard": "./bin/agentguard"
+  },
+  "scripts": {
+    "start": "node bin/agentguard",
+    "test": "node --experimental-vm-modules node_modules/.bin/jest test/"
+  },
+  "dependencies": {
+    "chalk": "^5.3.0"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0"
+  },
+  "jest": {
+    "extensionsToTreatAsEsm": [".js"],
+    "transform": {}
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "license": "MIT"
+}

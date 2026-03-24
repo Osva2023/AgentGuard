@@ -1,0 +1,81 @@
+#!/usr/bin/env node
+/**
+ * AgentGuard CLI entry point
+ *
+ * Usage:
+ *   agentguard <agent> [agent-args...]
+ *
+ * Examples:
+ *   agentguard codex
+ *   agentguard claude --print "refactor my auth module"
+ *   agentguard aider --model gpt-4
+ */
+
+import chalk from "chalk";
+import { createSnapshot } from "../src/snapshot.js";
+import { runInterceptor } from "../src/interceptor.js";
+import { logSessionStart, LOG_FILE } from "../src/logger.js";
+
+// ─── parse args ───────────────────────────────────────────────────────────────
+
+const [, , agent, ...agentArgs] = process.argv;
+
+if (!agent || agent === "--help" || agent === "-h") {
+  console.log(`
+${chalk.bold.cyan("AgentGuard")} ${chalk.gray("v0.1.0")} — Universal AI agent shell wrapper
+
+${chalk.bold("Usage:")}
+  agentguard <agent> [agent-args...]
+
+${chalk.bold("Examples:")}
+  agentguard codex
+  agentguard claude --print "refactor my auth module"
+  agentguard aider --model gpt-4
+
+${chalk.bold("What it does:")}
+  • Creates a git snapshot of your working tree before the session starts
+  • Wraps the agent process and monitors its output for dangerous commands
+  • Prompts you to approve or deny risky operations before they execute
+  • Writes a full audit log to ${LOG_FILE}
+`);
+  process.exit(0);
+}
+
+// ─── banner ───────────────────────────────────────────────────────────────────
+
+console.error(
+  chalk.cyan.bold("\n[AgentGuard]") +
+    chalk.white(` Wrapping agent: ${chalk.yellow(agent)}`) +
+    (agentArgs.length ? chalk.gray(` ${agentArgs.join(" ")}`) : "")
+);
+console.error(chalk.gray(`  Audit log: ${LOG_FILE}\n`));
+
+// ─── session start ────────────────────────────────────────────────────────────
+
+logSessionStart(agent);
+
+// ─── snapshot ─────────────────────────────────────────────────────────────────
+
+const snap = createSnapshot();
+if (snap.created) {
+  console.error(chalk.green(`[AgentGuard] Snapshot: ${snap.message}`));
+} else {
+  console.error(chalk.gray(`[AgentGuard] ${snap.message}`));
+}
+
+console.error(""); // blank line before agent output begins
+
+// ─── run ─────────────────────────────────────────────────────────────────────
+
+try {
+  const exitCode = await runInterceptor({
+    agent,
+    agentArgs,
+    stashRef: snap.stashRef,
+  });
+
+  process.exit(exitCode);
+} catch (err) {
+  console.error(chalk.red(`[AgentGuard] Fatal error: ${err.message}`));
+  process.exit(1);
+}
