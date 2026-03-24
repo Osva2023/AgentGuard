@@ -19,15 +19,17 @@
  *   and fall back to the log-based interceptor when it hasn't.
  */
 
-import { classify, requiresApproval } from "./classifier.js";
+import { classify, requiresApproval, scoreWithContext } from "./classifier.js";
 import { promptApproval } from "./approval.js";
 import {
   logIntercepted,
   logApproved,
   logDenied,
   logSessionEnd,
+  sessionId,
 } from "./logger.js";
 import { restoreSnapshot } from "./snapshot.js";
+import { isNotifierConfigured, sendTelegramAlert } from "./notifier.js";
 import chalk from "chalk";
 
 // ─── node-pty availability ───────────────────────────────────────────────────
@@ -233,10 +235,32 @@ export async function runPtyInterceptor({
             agent,
           });
 
+          // Context scoring (adds contextNotes to the result for the prompt)
+          const contextResult = scoreWithContext(cmd);
+          const enrichedResult = {
+            ...result,
+            contextNotes: contextResult.contextNotes,
+          };
+
+          // Fire Telegram alert in parallel — don't await so it doesn't block
+          // the interactive prompt.
+          if (isNotifierConfigured(config)) {
+            sendTelegramAlert(
+              {
+                command: cmd,
+                level: result.level,
+                reason: result.reason,
+                sessionId,
+                agent,
+              },
+              config
+            ).catch(() => {});
+          }
+
           handlingApproval = true;
           disableForwarding(); // hand stdin to the approval prompt
 
-          const decision = await promptApproval(result);
+          const decision = await promptApproval(enrichedResult);
 
           enableForwarding(); // resume PTY input forwarding
           handlingApproval = false;

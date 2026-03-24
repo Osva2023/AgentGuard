@@ -8,12 +8,15 @@
   },
   "scripts": {
     "start": "node bin/agentguard",
-    "test": "node test/classifier.test.js && node --experimental-vm-modules node_modules/.bin/jest test/config.test.js test/approval-diff.test.js",
+    "test": "node test/classifier.test.js && node test/notifier.test.js && node test/config.test.js && node --experimental-vm-modules node_modules/.bin/jest test/approval-diff.test.js",
     "test:classifier": "node test/classifier.test.js",
-    "test:jest": "node --experimental-vm-modules node_modules/.bin/jest test/config.test.js test/approval-diff.test.js"
+    "test:notifier": "node test/notifier.test.js",
+    "test:jest": "node --experimental-vm-modules node_modules/.bin/jest test/approval-diff.test.js",
+    "dashboard": "node bin/agentguard dashboard"
   },
   "dependencies": {
     "chalk": "^5.3.0",
+    "express": "^4.22.1",
     "node-pty": "^1.0.0"
   },
   "devDependencies": {

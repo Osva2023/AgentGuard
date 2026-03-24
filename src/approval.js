@@ -186,7 +186,7 @@ export function buildDiffPreview(command) {
  * @returns {Promise<'approve'|'deny'|'quit'>}
  */
 export async function promptApproval(result) {
-  const { command, level, reason } = result;
+  const { command, level, reason, contextNotes } = result;
 
   // Truncate very long commands for display
   const displayCmd =
@@ -203,6 +203,13 @@ export async function promptApproval(result) {
   // Build diff preview (may be empty)
   const diffLines = buildDiffPreview(command);
 
+  // Context notes from scoreWithContext (may be undefined / empty)
+  const noteLines = Array.isArray(contextNotes) && contextNotes.length > 0
+    ? contextNotes.map((n) => `  ${chalk.magenta("⚑")} ${chalk.white(n)}`)
+    : [];
+
+  const hasExtra = diffLines.length > 0 || noteLines.length > 0;
+
   console.error(""); // blank line before box
   console.error(boxTop());
   console.error(boxRow(header));
@@ -210,10 +217,13 @@ export async function promptApproval(result) {
   console.error(boxRow(cmdLine));
   console.error(boxRow(riskLine));
   console.error(boxRow(reasonLine));
-  if (diffLines.length > 0) {
+  if (hasExtra) {
     console.error(boxDivider());
     for (const dl of diffLines) {
       console.error(boxRow(dl));
+    }
+    for (const nl of noteLines) {
+      console.error(boxRow(nl));
     }
   }
   console.error(boxDivider());

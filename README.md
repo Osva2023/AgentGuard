@@ -65,6 +65,58 @@ A `agentguard.config.json` file at the project root (or `~/.agentguard/config.js
 }
 ```
 
+## Phase 2 features
+
+### Web dashboard
+
+Launch the local dashboard (served at `http://localhost:7429`):
+
+```bash
+agentguard dashboard
+```
+
+The dashboard auto-refreshes every 5 seconds and shows:
+- Aggregate stats: sessions, intercepted, blocked, approved
+- Session table with agent, start time, duration, and command counts
+- Click a session row to expand and inspect every event
+
+### Telegram notifications
+
+Set your bot credentials and AgentGuard will send a Telegram alert whenever a risky command is intercepted — useful when an agent runs in the background or in CI:
+
+```bash
+export AGENTGUARD_TELEGRAM_BOT_TOKEN="your-bot-token"
+export AGENTGUARD_TELEGRAM_CHAT_ID="your-chat-id"
+```
+
+Or set them in `agentguard.config.json`:
+
+```json
+{
+  "notifications": {
+    "telegram": {
+      "enabled": true,
+      "botToken": "your-bot-token",
+      "chatId": "your-chat-id"
+    }
+  }
+}
+```
+
+Each alert includes the agent name, session ID, risk level, command, reason, and `/approve_<id>` / `/deny_<id>` reply hints.
+
+### Context-aware risk scoring
+
+When AgentGuard prompts for approval it automatically evaluates runtime context — no configuration needed.  Factors considered:
+
+- **CI environment** (`CI` env var set) → score +30
+- **Uncommitted files** that would be deleted → score +20
+- **More than 10 files** affected by an `rm -rf` → score +15
+- **Inside a git repo** (rollback possible) → score −5
+- **`agentguard.config.json` present** (user is aware) → score −5
+
+Context notes are shown inside the approval box when relevant.
+
 ## License
 
 MIT

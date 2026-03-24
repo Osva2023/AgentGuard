@@ -55,6 +55,14 @@ ${chalk.bold("Config (optional):")}
   process.exit(0);
 }
 
+// ─── dashboard sub-command ────────────────────────────────────────────────────
+
+if (agent === "dashboard") {
+  const { startDashboard } = await import("../src/dashboard/server.js");
+  await startDashboard();
+  process.exit(0);
+}
+
 // ─── load config ─────────────────────────────────────────────────────────────
 
 const config = loadConfig();

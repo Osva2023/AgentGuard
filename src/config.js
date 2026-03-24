@@ -45,6 +45,14 @@ export const DEFAULT_CONFIG = {
     enabled: true,
     path: "~/.agentguard/audit.log",
   },
+  notifications: {
+    telegram: {
+      /** Set to true and provide botToken + chatId to enable Telegram alerts. */
+      enabled: false,
+      botToken: "",
+      chatId: "",
+    },
+  },
 };
 
 // ─── loader ──────────────────────────────────────────────────────────────────
@@ -102,6 +110,12 @@ export function mergeConfig(defaults, overrides) {
     auditLog: {
       ...defaults.auditLog,
       ...(overrides.auditLog ?? {}),
+    },
+    notifications: {
+      telegram: {
+        ...defaults.notifications.telegram,
+        ...(overrides.notifications?.telegram ?? {}),
+      },
     },
   };
 }
