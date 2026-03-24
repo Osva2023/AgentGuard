@@ -31,6 +31,20 @@ import {
 import { restoreSnapshot } from "./snapshot.js";
 import { isNotifierConfigured, sendTelegramAlert } from "./notifier.js";
 import chalk from "chalk";
+import { execSync } from "child_process";
+
+/** Resolve a binary name to its full path using `which`. */
+function resolveBin(name) {
+  // If it's already a path, use as-is
+  if (name.startsWith("/") || name.startsWith("./") || name.startsWith("../")) {
+    return name;
+  }
+  try {
+    return execSync(`which ${name}`, { encoding: "utf8" }).trim();
+  } catch {
+    return name; // fallback — let node-pty give the real error
+  }
+}
 
 // ─── node-pty availability ───────────────────────────────────────────────────
 
@@ -103,7 +117,8 @@ export async function runPtyInterceptor({
 
   return new Promise((resolve) => {
     // ── spawn PTY ─────────────────────────────────────────────────────────
-    const pty = ptySpawn(agent, agentArgs, {
+    const resolvedAgent = resolveBin(agent);
+    const pty = ptySpawn(resolvedAgent, agentArgs, {
       name: process.env.TERM || "xterm-256color",
       cols: process.stdout.columns || 80,
       rows: process.stdout.rows || 24,
