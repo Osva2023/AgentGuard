@@ -24,7 +24,9 @@ function resolveCredentials(config) {
     tg.botToken || process.env.AGENTGUARD_TELEGRAM_BOT_TOKEN || "";
   const chatId =
     tg.chatId || process.env.AGENTGUARD_TELEGRAM_CHAT_ID || "";
-  return { token, chatId };
+  // extraChatIds: additional recipients (array of strings)
+  const extraChatIds = Array.isArray(tg.extraChatIds) ? tg.extraChatIds : [];
+  return { token, chatId, extraChatIds };
 }
 
 // ─── public API ───────────────────────────────────────────────────────────────
@@ -93,24 +95,28 @@ export async function sendTelegramAlert(
     `Reply /approve_${shortSession} or /deny_${shortSession}`,
   ].join("\n");
 
+  const { token, chatId, extraChatIds } = resolveCredentials(config);
+  const allChatIds = [chatId, ...extraChatIds].filter(Boolean);
   const url = `https://api.telegram.org/bot${token}/sendMessage`;
 
-  try {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: chatId, text }),
-    });
+  for (const id of allChatIds) {
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chat_id: id, text }),
+      });
 
-    if (!res.ok) {
-      const body = await res.text();
+      if (!res.ok) {
+        const body = await res.text();
+        process.stderr.write(
+          `[AgentGuard] Telegram notification failed for ${id} (HTTP ${res.status}): ${body}\n`
+        );
+      }
+    } catch (err) {
       process.stderr.write(
-        `[AgentGuard] Telegram notification failed (HTTP ${res.status}): ${body}\n`
+        `[AgentGuard] Telegram notification error for ${id}: ${err.message}\n`
       );
     }
-  } catch (err) {
-    process.stderr.write(
-      `[AgentGuard] Telegram notification error: ${err.message}\n`
-    );
   }
 }
