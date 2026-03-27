@@ -72,7 +72,9 @@ export function printSessionSummary({ agent, startTime, stats, snapshot }) {
 
   const snapStatus = snapshot?.created
     ? chalk.green(`✓ ${snapshot.stashRef || "created"}`)
-    : chalk.gray("none (not a git repo)");
+    : snapshot?.message?.includes("clean")
+      ? chalk.gray("none (working tree clean)")
+      : chalk.gray("none (not a git repo)");
 
   console.error(""); // blank line before box
   console.error(boxTop());
@@ -87,6 +89,11 @@ export function printSessionSummary({ agent, startTime, stats, snapshot }) {
         `${chalk.yellow(stats.intercepted)} intercepted`
     )
   );
+  if (stats.fileChanges > 0) {
+    console.error(
+      boxRow(`  File edits: ${chalk.white(stats.fileChanges)} detected by watcher`)
+    );
+  }
   console.error(
     boxRow(
       `  Blocked:    ${blockedTotal > 0 ? chalk.red(blockedTotal) : chalk.gray("0")}` +

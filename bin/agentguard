@@ -23,6 +23,7 @@ import { runInterceptor } from "../src/interceptor.js";
 import { logSessionStart, LOG_FILE } from "../src/logger.js";
 import { loadConfig } from "../src/config.js";
 import { printSessionSummary } from "../src/summary.js";
+import { startFileWatcher } from "../src/filewatcher.js";
 
 // ─── parse args ───────────────────────────────────────────────────────────────
 
@@ -156,15 +157,32 @@ if (!runSession) {
     });
 }
 
+// ─── file watcher ────────────────────────────────────────────────────────────
+
+const watcher = startFileWatcher({
+  cwd: process.cwd(),
+  agent,
+  stashRef: snap.stashRef,
+  stats,
+});
+
 // ─── run ─────────────────────────────────────────────────────────────────────
 
 try {
   const exitCode = await runSession();
 
+  watcher.stop();
+
+  // Add file change count to summary
+  if (watcher.fileChanges.length > 0) {
+    stats.fileChanges = watcher.fileChanges.length;
+  }
+
   printSessionSummary({ agent, startTime, stats, snapshot: snap });
 
   process.exit(exitCode);
 } catch (err) {
+  watcher.stop();
   console.error(chalk.red(`[AgentGuard] Fatal error: ${err.message}`));
   printSessionSummary({ agent, startTime, stats, snapshot: snap });
   process.exit(1);
