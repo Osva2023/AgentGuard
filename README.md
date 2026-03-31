@@ -1,6 +1,30 @@
 # AgentGuard
 
-AgentGuard is a universal shell wrapper that sits between you and any AI coding agent — Codex, Claude Code, aider, and others — to intercept dangerous shell commands before they execute. Instead of trusting that the agent will only do what you asked, AgentGuard classifies every command it attempts to run and prompts you for approval whenever the risk level is WARN, HIGH, or CRITICAL.
+**Guardrails for AI coding agents. See what they touch. Keep what you want.**
+
+[![npm version](https://img.shields.io/npm/v/agentguard)](https://www.npmjs.com/package/agentguard)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/agentguard/agentguard/pulls)
+
+AgentGuard wraps any AI coding agent — Claude Code, Codex, aider — and watches everything it does. Dangerous commands get flagged before they run. Every file change gets tracked. When the session ends, you review a diff of anything sensitive and decide, file by file, what to keep.
+
+You asked for one thing. AgentGuard makes sure that's all you got.
+
+---
+
+AI coding agents are powerful but unpredictable. Claude Code might refactor `auth.js` and quietly edit your `.env` while it's at it. Codex might clean up "unused files" and delete something critical. You asked for one thing — you got ten. Most of the time nothing breaks. But you never really know what changed until something goes wrong, and by then the context is gone.
+
+---
+
+## How AgentGuard helps
+
+- **PTY Interceptor** — Wraps the agent process and catches dangerous shell commands mid-execution (`rm -rf`, `git push --force`, pipe-to-shell, etc.) before they run
+- **File Watcher** — Silently tracks every file touched during the session, including agents running in `--print` mode that bypass the PTY
+- **Post-Action Review** — When the agent finishes, shows a diff of every sensitive file (`.env`, keys, CI configs, `package.json`) and lets you choose Keep / Rollback per file
+
+**You see exactly what changed. You decide what to keep.**
+
+---
 
 ## Install
 
@@ -8,115 +32,130 @@ AgentGuard is a universal shell wrapper that sits between you and any AI coding 
 npm install -g agentguard
 ```
 
+---
+
 ## Usage
 
-Prefix any agent command with `agentguard`:
-
 ```bash
-# Wrap OpenAI Codex
-agentguard codex
-
-# Wrap Claude Code with a task
+# Wrap any agent
 agentguard claude --print "refactor my auth module"
-
-# Wrap aider
+agentguard codex
 agentguard aider --model gpt-4
 ```
 
-When a risky command is detected, you'll see a prompt like:
+---
+
+## What it looks like
 
 ```
-┌─────────────────────────────────────────────────────┐
-│  ⚠️  AgentGuard — HIGH RISK OPERATION               │
-├─────────────────────────────────────────────────────┤
-│  Command:  rm -rf ./src/utils/                      │
-│  Risk:     CRITICAL                                 │
-│  Reason:   Recursive or forced file deletion        │
-├─────────────────────────────────────────────────────┤
-│  [A] Approve   [D] Deny   [Q] Quit session          │
-└─────────────────────────────────────────────────────┘
+$ agentguard claude --print "clean up the auth module"
+
+  ╔══════════════════════════════════════════╗
+  ║  AgentGuard v0.2.0  •  Session started   ║
+  ║  Snapshot: ✓  File watcher: ✓  PTY: ✓   ║
+  ╚══════════════════════════════════════════╝
+
+[claude] Analyzing auth module...
+[claude] Refactoring src/auth.js — extracting token validation helper
+[claude] Removing duplicate middleware in src/middleware/auth.js
+[claude] Done.
+
+  [AgentGuard] File watcher recorded 4 changes
+
+──────────────────────────────────────────────
+  POST-ACTION REVIEW
+  Files changed during session: 4
+  Sensitive files requiring review: 1
+──────────────────────────────────────────────
+
+  [1/1]  CRITICAL  •  .env
+  ─────────────────────────────────────────
+  @@ -12,3 +12,4 @@
+   DATABASE_URL=postgres://localhost/myapp
+   SESSION_SECRET=abc123
+   NODE_ENV=development
+  +OPENAI_API_KEY=sk-proj-••••••••••••••••••
+
+  This file was modified during the session.
+  [K]eep  [R]ollback  [S]kip all  › _
+
+  › K
+
+  ✓ Kept .env
+
+──────────────────────────────────────────────
+  ╔══════════════════════════════════════════╗
+  ║  Session complete                        ║
+  ║  Files changed:   4   (3 source, 1 env)  ║
+  ║  Review:          1 kept, 0 rolled back  ║
+  ║  Audit log:  ~/.agentguard/audit.log     ║
+  ╚══════════════════════════════════════════╝
 ```
 
-## How it works
+---
 
-- **Snapshot** — Before the agent session starts, AgentGuard stashes your working tree with `git stash -u` so you can roll back any changes the agent makes.
-- **Intercept** — The agent process is wrapped and its output is monitored in real time. Commands matching any of 30+ risk rules are caught before they can cause damage.
-- **Audit log** — Every intercepted command, approval, and denial is written as structured JSON to `~/.agentguard/audit.log` for review.
+## Post-Action Review
+
+Most guardrail tools try to block things mid-session. AgentGuard doesn't, and that's intentional.
+
+**Why not block mid-session?** Claude Code runs fast. By the time a risky write is detected, the agent may be three steps ahead. More importantly — you might have *asked* it to touch that file. Blocking mid-stream creates false positives and breaks the agent's flow. The PTY interceptor still catches clearly-dangerous shell commands (deletes, force pushes), but file writes go through.
+
+**Why per-file rollback instead of full repo restore?** A full restore throws away everything. If the agent correctly refactored five files and accidentally touched `.env`, you want to keep the five and roll back one. Per-file granularity means you don't have to choose between "accept everything" and "lose all progress."
+
+**The prompt:** `[K]eep` accepts the change. `[R]ollback` reverts the file to its pre-session snapshot. `[S]kip all` exits without rolling back anything — useful when you've already reviewed and you trust the run.
+
+---
 
 ## Risk levels
 
-| Level    | Examples                                      | Action         |
-|----------|-----------------------------------------------|----------------|
-| CRITICAL | `rm -rf`, `git push --force`, pipe to shell   | Prompt required |
-| HIGH     | `chmod 777`, `DROP TABLE`, overwrite `.env`   | Prompt required |
-| WARN     | `npm install`, `git merge`, `brew install`    | Prompt required |
-| SAFE     | `ls`, `git status`, `cat`, `npm run build`    | Pass-through   |
+| Level | Examples | Behavior |
+|---|---|---|
+| CRITICAL | `.env`, private keys, CI/CD configs (`.github/workflows`) | Always shown in Post-Action Review |
+| HIGH | `package.json`, `Dockerfile`, `.gitconfig` | Always shown in Post-Action Review |
+| WARN | Build configs, tool configs (`.eslintrc`, `tsconfig.json`) | Listed quietly in session summary |
+| SAFE | Source files, docs, tests | Listed quietly in session summary |
+
+CRITICAL and HIGH files always surface for review, even if the diff looks harmless. You should be the one deciding that.
+
+---
+
+## Audit log
+
+Everything gets written to `~/.agentguard/audit.log` as newline-delimited JSON — session starts, file changes, review decisions, rollbacks. Useful for post-mortems, compliance, or just understanding what your agents are up to over time.
+
+---
 
 ## Configuration
 
-A `agentguard.config.json` file at the project root (or `~/.agentguard/config.json` for global config) is coming in a future release. Planned options:
+`agentguard.config.json` support is coming. Planned options:
 
-```json
-{
-  "autoApproveWarn": false,
-  "blockCriticalWithoutPrompt": false,
-  "restoreSnapshotOnDeny": true,
-  "additionalRules": []
-}
-```
+- Custom file risk classifications
+- Auto-approve rules (e.g. always keep source file changes)
+- Ignore patterns (e.g. `node_modules`, build output)
+- Notification hooks
 
-## Phase 2 features
+---
 
-### Web dashboard
+## Roadmap
 
-Launch the local dashboard (served at `http://localhost:7429`):
+- [x] PTY command interceptor
+- [x] File watcher (all agents, including `--print` mode)
+- [x] Post-Action Review with per-file diff + rollback
+- [ ] Intent context — compare agent actions vs your original prompt
+- [ ] Per-project config file (`agentguard.config.json`)
+- [ ] Web dashboard
+- [ ] Multi-agent test suite
 
-```bash
-agentguard dashboard
-```
+---
 
-The dashboard auto-refreshes every 5 seconds and shows:
-- Aggregate stats: sessions, intercepted, blocked, approved
-- Session table with agent, start time, duration, and command counts
-- Click a session row to expand and inspect every event
+## Contributing
 
-### Telegram notifications
+Issues and feedback welcome. This is early — **feedback > PRs right now**. If something broke, something confused you, or something should exist that doesn't, open an issue.
 
-Set your bot credentials and AgentGuard will send a Telegram alert whenever a risky command is intercepted — useful when an agent runs in the background or in CI:
+If you do want to submit a PR: fork, branch, make the change, add a test if it touches logic, open the PR. That's it.
 
-```bash
-export AGENTGUARD_TELEGRAM_BOT_TOKEN="your-bot-token"
-export AGENTGUARD_TELEGRAM_CHAT_ID="your-chat-id"
-```
-
-Or set them in `agentguard.config.json`:
-
-```json
-{
-  "notifications": {
-    "telegram": {
-      "enabled": true,
-      "botToken": "your-bot-token",
-      "chatId": "your-chat-id"
-    }
-  }
-}
-```
-
-Each alert includes the agent name, session ID, risk level, command, reason, and `/approve_<id>` / `/deny_<id>` reply hints.
-
-### Context-aware risk scoring
-
-When AgentGuard prompts for approval it automatically evaluates runtime context — no configuration needed.  Factors considered:
-
-- **CI environment** (`CI` env var set) → score +30
-- **Uncommitted files** that would be deleted → score +20
-- **More than 10 files** affected by an `rm -rf` → score +15
-- **Inside a git repo** (rollback possible) → score −5
-- **`agentguard.config.json` present** (user is aware) → score −5
-
-Context notes are shown inside the approval box when relevant.
+---
 
 ## License
 
-MIT
+[MIT License](./LICENSE) — free to use, modify, and distribute.

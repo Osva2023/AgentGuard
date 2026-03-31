@@ -13,6 +13,7 @@ export { runInterceptor } from "./interceptor.js";
 export { runPtyInterceptor, PTY_AVAILABLE } from "./pty-interceptor.js";
 export { loadConfig, mergeConfig, DEFAULT_CONFIG } from "./config.js";
 export { printSessionSummary } from "./summary.js";
+export { showPostActionReview } from "./reviewer.js";
 export {
   log,
   logSessionStart,

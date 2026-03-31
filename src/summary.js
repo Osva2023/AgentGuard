@@ -57,12 +57,15 @@ function formatDuration(ms) {
  * Print the end-of-session summary box to stderr.
  *
  * @param {Object} opts
- * @param {string}  opts.agent         - Agent name
- * @param {number}  opts.startTime     - Session start timestamp (Date.now())
- * @param {Object}  opts.stats         - { commandsSeen, intercepted, approved, blocked }
- * @param {Object}  [opts.snapshot]    - Snapshot result from createSnapshot()
+ * @param {string}  opts.agent                  - Agent name
+ * @param {number}  opts.startTime              - Session start timestamp (Date.now())
+ * @param {Object}  opts.stats                  - { commandsSeen, intercepted, approved, blocked }
+ * @param {Object}  [opts.snapshot]             - Snapshot result from createSnapshot()
+ * @param {Object}  [opts.reviewStats]          - { kept, rolledBack } from showPostActionReview()
+ * @param {number}  opts.reviewStats.kept       - Files kept after review
+ * @param {number}  opts.reviewStats.rolledBack - Files rolled back after review
  */
-export function printSessionSummary({ agent, startTime, stats, snapshot }) {
+export function printSessionSummary({ agent, startTime, stats, snapshot, reviewStats }) {
   const duration = formatDuration(Date.now() - startTime);
 
   const blockedTotal = Object.values(stats.blocked || {}).reduce((a, b) => a + b, 0);
@@ -107,6 +110,13 @@ export function printSessionSummary({ agent, startTime, stats, snapshot }) {
   );
   console.error(boxDivider());
   console.error(boxRow(`  Snapshot:   ${snapStatus}`));
+  if (reviewStats) {
+    const keptStr = reviewStats.kept > 0 ? chalk.green(String(reviewStats.kept)) : chalk.gray("0");
+    const rbStr   = reviewStats.rolledBack > 0 ? chalk.red(String(reviewStats.rolledBack)) : chalk.gray("0");
+    console.error(
+      boxRow(`  Review:     ${keptStr} kept, ${rbStr} rolled back`)
+    );
+  }
   console.error(boxBottom());
   console.error("");
 }

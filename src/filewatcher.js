@@ -4,16 +4,16 @@
  * Monitors the working directory for file changes while an agent runs.
  * Catches edits that bypass shell interception (e.g. Claude Code --print mode).
  *
- * Sensitive files trigger an approval prompt before the session continues.
- * All changes are logged to the audit log regardless of risk level.
+ * All changes are tracked silently into the fileChanges array.  Sensitive file
+ * touches are logged to the audit log and noted with a quiet gray notice.
+ * The mid-session approval prompt has been replaced by a Post-Action Review
+ * (see reviewer.js) that runs after the agent exits.
  */
 
 import chokidar from "chokidar";
 import path from "path";
 import chalk from "chalk";
-import { promptApproval } from "./approval.js";
-import { logIntercepted, logApproved, logDenied } from "./logger.js";
-import { restoreSnapshot } from "./snapshot.js";
+import { logIntercepted } from "./logger.js";
 
 // ─── Sensitive file patterns ─────────────────────────────────────────────────
 
@@ -59,17 +59,21 @@ function riskLevel(filePath) {
 /**
  * Start watching the working directory for file changes.
  *
+ * Changes are tracked silently.  Sensitive file touches emit a quiet notice
+ * and are logged to the audit log.  No mid-session prompting occurs — the
+ * Post-Action Review (reviewer.js) handles per-file decisions after the
+ * agent exits.
+ *
  * @param {Object} opts
  * @param {string}   opts.cwd        - Directory to watch
  * @param {string}   opts.agent      - Agent name (for logging)
- * @param {string}   [opts.stashRef] - Snapshot ref for rollback on deny
+ * @param {string}   [opts.stashRef] - Snapshot ref (unused by watcher; passed through for context)
  * @param {Object}   [opts.stats]    - Shared stats object (mutated in place)
  * @returns {{ stop: Function, fileChanges: Array }}
  */
 export function startFileWatcher({ cwd, agent, stashRef, stats }) {
+  void stashRef; // no longer used mid-session; reviewer.js handles rollback
   const fileChanges = [];
-  let paused = false;
-  let pendingApproval = null;
 
   const watcher = chokidar.watch(cwd, {
     ignored: [
@@ -84,9 +88,7 @@ export function startFileWatcher({ cwd, agent, stashRef, stats }) {
     awaitWriteFinish: false,    // report immediately, don't wait
   });
 
-  async function handleChange(event, filePath) {
-    if (paused) return;
-
+  function handleChange(event, filePath) {
     const rel = path.relative(cwd, filePath);
     const sensitive = isSensitive(rel);
     const level = sensitive ? riskLevel(rel) : "SAFE";
@@ -96,43 +98,15 @@ export function startFileWatcher({ cwd, agent, stashRef, stats }) {
     if (stats) stats.fileChanges = (stats.fileChanges || 0) + 1;
 
     if (sensitive) {
-      paused = true;
       if (stats) stats.intercepted = (stats.intercepted || 0) + 1;
 
-      console.error("");
-      console.error(chalk.yellow(`[AgentGuard] 📁 File change detected: ${rel}`));
-
+      // Audit log — always record sensitive touches
       logIntercepted({ command: `${event}: ${rel}`, level, reason: "Sensitive file modified by agent", agent });
 
-      const decision = await promptApproval({
-        level,
-        command: `${event.toUpperCase()}: ${rel}`,
-        reason: `Agent modified a sensitive file`,
-      });
-
-      if (decision === "approve") {
-        if (stats) stats.approved = (stats.approved || 0) + 1;
-        logApproved({ command: `${event}: ${rel}`, level, agent });
-        console.error(chalk.green(`[AgentGuard] ✓ Change approved: ${rel}`));
-        paused = false;
-      } else {
-        if (stats) stats.blocked = { ...(stats.blocked || {}), [level]: ((stats.blocked || {})[level] || 0) + 1 };
-        logDenied({ command: `${event}: ${rel}`, level, agent });
-        console.error(chalk.red(`[AgentGuard] ✗ Change denied: ${rel}`));
-
-        if (stashRef) {
-          console.error(chalk.yellow("[AgentGuard] Restoring snapshot..."));
-          const snap = restoreSnapshot(stashRef);
-          console.error(
-            snap.restored
-              ? chalk.green(`[AgentGuard] ${snap.message}`)
-              : chalk.red(`[AgentGuard] Restore failed: ${snap.message}`)
-          );
-        }
-        process.exit(1);
-      }
+      // Quiet notice — no blocking, no prompt
+      console.error(chalk.gray(`[AgentGuard] 📝 sensitive: ${rel}`));
     } else {
-      // Non-sensitive change — log and show quietly
+      // Non-sensitive change — log quietly
       console.error(chalk.gray(`[AgentGuard] 📝 ${event}: ${rel}`));
     }
   }

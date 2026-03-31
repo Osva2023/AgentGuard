@@ -24,6 +24,7 @@ import { logSessionStart, LOG_FILE } from "../src/logger.js";
 import { loadConfig } from "../src/config.js";
 import { printSessionSummary } from "../src/summary.js";
 import { startFileWatcher } from "../src/filewatcher.js";
+import { showPostActionReview } from "../src/reviewer.js";
 
 // ─── parse args ───────────────────────────────────────────────────────────────
 
@@ -178,7 +179,15 @@ try {
     stats.fileChanges = watcher.fileChanges.length;
   }
 
-  printSessionSummary({ agent, startTime, stats, snapshot: snap });
+  // Post-Action Review — runs before the summary box, returns stats if there
+  // were sensitive files to review (null if skipped).
+  const reviewStats = await showPostActionReview({
+    fileChanges: watcher.fileChanges,
+    stashRef: snap.stashRef,
+    cwd: process.cwd(),
+  });
+
+  printSessionSummary({ agent, startTime, stats, snapshot: snap, reviewStats });
 
   process.exit(exitCode);
 } catch (err) {
