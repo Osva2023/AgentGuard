@@ -196,6 +196,7 @@ try {
   const reviewStats = await showPostActionReview({
     fileChanges: watcher.fileChanges,
     stashRef: snap.stashRef,
+    sensitiveBackupDir: snap.sensitiveBackupDir,
     cwd: process.cwd(),
   });
 

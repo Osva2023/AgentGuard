@@ -11,6 +11,8 @@
  */
 
 import { spawnSync } from "child_process";
+import fs from "fs";
+import path from "path";
 import readline from "readline";
 import chalk from "chalk";
 import { log } from "./logger.js";
@@ -145,6 +147,61 @@ function restoreFile(stashIndex, file, cwd) {
   return { ok: true, message: `Restored ${file} from ${stashIndex}` };
 }
 
+/**
+ * Restore a single file from the per-session sensitive-file backup dir.
+ * Used as a fallback when `git checkout <stash> -- file` fails because the
+ * file was gitignored (e.g. `.env`) and therefore not captured by the stash.
+ *
+ * @param {string} backupDir - e.g. "~/.agentguard/snapshots/<sessionId>"
+ * @param {string} file      - Relative file path (same key used by the backup)
+ * @param {string} cwd       - Working directory
+ * @returns {{ ok: boolean, message: string }}
+ */
+function restoreFileFromBackup(backupDir, file, cwd) {
+  const src = path.join(backupDir, file);
+  if (!fs.existsSync(src)) {
+    return { ok: false, message: `no backup for ${file}` };
+  }
+  try {
+    const dest = path.join(cwd, file);
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.copyFileSync(src, dest);
+    return { ok: true, message: `Restored ${file} from backup` };
+  } catch (err) {
+    return { ok: false, message: `backup copy failed: ${err.message}` };
+  }
+}
+
+/**
+ * Attempt to roll back a single file. Tries the git stash first, then falls
+ * back to the per-session sensitive-file backup dir. Reports which source
+ * actually produced the restore.
+ *
+ * @returns {{ ok: boolean, source: "stash"|"backup"|null, message: string }}
+ */
+function rollbackFile({ file, cwd, stashIndex, sensitiveBackupDir }) {
+  let stashErr = null;
+  if (stashIndex) {
+    const res = restoreFile(stashIndex, file, cwd);
+    if (res.ok) return { ok: true, source: "stash", message: res.message };
+    stashErr = res.message;
+  }
+
+  if (sensitiveBackupDir) {
+    const res = restoreFileFromBackup(sensitiveBackupDir, file, cwd);
+    if (res.ok) return { ok: true, source: "backup", message: res.message };
+    // If stash never ran, surface the backup error; otherwise keep the
+    // stash error — it's the more informative one.
+    if (!stashIndex) stashErr = res.message;
+  }
+
+  return {
+    ok: false,
+    source: null,
+    message: stashErr || "no snapshot or backup available",
+  };
+}
+
 // ─── readline prompt helper ───────────────────────────────────────────────────
 
 /**
@@ -187,12 +244,16 @@ function askAction(prompt) {
  * @param {Object}   opts
  * @param {Array}    opts.fileChanges  - Array of { file, event, level } from filewatcher
  * @param {string}   [opts.stashRef]  - Stash ref created at session start (may be null)
+ * @param {string}   [opts.sensitiveBackupDir] - Per-session backup dir for gitignored
+ *                                              sensitive files (e.g. .env). Used as a
+ *                                              rollback fallback when the stash doesn't
+ *                                              contain the file.
  * @param {string}   opts.cwd         - Working directory
  *
  * @returns {Promise<{ kept: number, rolledBack: number } | null>}
  *   Returns stats if the review ran (sensitive files existed), or null if skipped.
  */
-export async function showPostActionReview({ fileChanges, stashRef, cwd }) {
+export async function showPostActionReview({ fileChanges, stashRef, sensitiveBackupDir, cwd }) {
   if (!fileChanges || fileChanges.length === 0) return null;
 
   // ── Deduplicate: keep last event per file ─────────────────────────────────
@@ -236,11 +297,15 @@ export async function showPostActionReview({ fileChanges, stashRef, cwd }) {
   let stashIndex = null;
   if (stashRef) {
     stashIndex = resolveStashIndex(stashRef);
-    if (!stashIndex) {
-      console.error(chalk.yellow(`\n[AgentGuard] ⚠ Could not locate snapshot stash "${stashRef}" — rollback unavailable.`));
-    }
-  } else {
-    console.error(chalk.yellow("\n[AgentGuard] ⚠ No snapshot was created — rollback unavailable."));
+  }
+  const hasBackup = !!sensitiveBackupDir;
+
+  if (!stashIndex && !hasBackup) {
+    console.error(chalk.yellow("\n[AgentGuard] ⚠ No snapshot available — rollback unavailable."));
+  } else if (!stashIndex && stashRef) {
+    console.error(chalk.yellow(`\n[AgentGuard] ⚠ Could not locate snapshot stash "${stashRef}" — only sensitive-file backup available for rollback.`));
+  } else if (!stashIndex) {
+    console.error(chalk.yellow("\n[AgentGuard] ⚠ No git stash — rollback limited to sensitive-file backup."));
   }
 
   // ── Per-file review ───────────────────────────────────────────────────────
@@ -295,16 +360,27 @@ export async function showPostActionReview({ fileChanges, stashRef, cwd }) {
       log({ event: "review_kept", file: change.file, level: change.level });
       console.error(chalk.green(`  ✓ Kept: ${change.file}`));
     } else if (action === "r") {
-      if (!stashIndex) {
+      if (!stashIndex && !sensitiveBackupDir) {
         console.error(chalk.red("  ✗ Rollback unavailable (no snapshot). Keeping change."));
         kept++;
         log({ event: "review_kept", file: change.file, level: change.level, reason: "rollback_unavailable" });
       } else {
-        const res = restoreFile(stashIndex, change.file, cwd);
+        const res = rollbackFile({
+          file: change.file,
+          cwd,
+          stashIndex,
+          sensitiveBackupDir,
+        });
         if (res.ok) {
           rolledBack++;
-          log({ event: "review_rolled_back", file: change.file, level: change.level, stashIndex });
-          console.error(chalk.green(`  ✓ Rolled back: ${change.file}`));
+          log({
+            event: "review_rolled_back",
+            file: change.file,
+            level: change.level,
+            source: res.source,
+            ...(stashIndex && { stashIndex }),
+          });
+          console.error(chalk.green(`  ✓ Rolled back: ${change.file} ${chalk.gray(`(from ${res.source})`)}`));
         } else {
           console.error(chalk.red(`  ✗ Rollback failed: ${res.message}. Keeping change.`));
           kept++;

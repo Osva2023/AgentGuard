@@ -52,6 +52,8 @@ function commandSubtype(command) {
 //
 // Derived from the SENSITIVE_PATTERNS / riskLevel logic in filewatcher.js.
 // Keep these in sync when filewatcher.js changes.
+// TODO(follow-up ticket): migrate to the shared patterns in ./sensitive.js so
+// decoder subtypes and filewatcher/snapshot detection cannot drift apart.
 //
 // Order matters: more-specific subtypes are listed first so a file like
 // ".github/workflows/ci.yml" is classified as "cicd" rather than "config".

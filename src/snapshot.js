@@ -7,7 +7,10 @@
  */
 
 import { execSync, spawnSync } from "child_process";
-import { logSnapshot } from "./logger.js";
+import fs from "fs";
+import path from "path";
+import { logSnapshot, AGENTGUARD_DIR, sessionId } from "./logger.js";
+import { isSensitive } from "./sensitive.js";
 
 /**
  * Check whether the current working directory is inside a git repository.
@@ -26,20 +29,82 @@ function isGitRepo() {
   }
 }
 
+// Directories never descended into when scanning for sensitive files.
+// Mirrors the ignore list in filewatcher.js.
+const IGNORED_DIRS = new Set(["node_modules", ".git", ".agentguard"]);
+
+/**
+ * Walk the working tree and return all files matching SENSITIVE_PATTERNS.
+ * Catches gitignored files (.env, *.key, *.pem, ...) that `git stash -u`
+ * silently skips.
+ */
+function findSensitiveFiles(root) {
+  const results = [];
+  const walk = (dir) => {
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const abs = path.join(dir, entry.name);
+      const rel = path.relative(root, abs);
+      if (entry.isDirectory()) {
+        if (IGNORED_DIRS.has(entry.name)) continue;
+        walk(abs);
+      } else if (entry.isFile() && isSensitive(rel)) {
+        results.push({ abs, rel });
+      }
+    }
+  };
+  walk(root);
+  return results;
+}
+
+/**
+ * Copy every sensitive file under `cwd` to
+ * ~/.agentguard/snapshots/{sessionId}/{relative-path}.
+ * Returns the backup directory path (or null if nothing was backed up).
+ */
+function backupSensitiveFiles(cwd) {
+  const files = findSensitiveFiles(cwd);
+  if (files.length === 0) return { dir: null, count: 0 };
+
+  const backupDir = path.join(AGENTGUARD_DIR, "snapshots", sessionId);
+  for (const { abs, rel } of files) {
+    const dest = path.join(backupDir, rel);
+    try {
+      fs.mkdirSync(path.dirname(dest), { recursive: true });
+      fs.copyFileSync(abs, dest);
+    } catch {
+      // Best-effort — a single failed copy shouldn't abort the snapshot.
+    }
+  }
+  return { dir: backupDir, count: files.length };
+}
+
 /**
  * Create a snapshot stash with a timestamped message.
  * Includes untracked files (-u) so the full working tree is preserved.
  *
- * @returns {{ created: boolean, stashRef: string|null, message: string }}
+ * Also copies any sensitive files (.env, *.key, *.pem, ...) to a
+ * per-session backup directory, since `git stash -u` skips gitignored
+ * files and those are the ones most worth protecting.
+ *
+ * @returns {{ created: boolean, stashRef: string|null, sensitiveBackupDir: string|null, message: string }}
  */
 export function createSnapshot() {
   if (!isGitRepo()) {
     return {
       created: false,
       stashRef: null,
+      sensitiveBackupDir: null,
       message: "Not a git repository — snapshot skipped.",
     };
   }
+
+  const backup = backupSensitiveFiles(process.cwd());
 
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   const stashMsg = `agentguard-snapshot-${timestamp}`;
@@ -53,6 +118,7 @@ export function createSnapshot() {
     return {
       created: false,
       stashRef: null,
+      sensitiveBackupDir: backup.dir,
       message: `Snapshot failed: ${result.error.message}`,
     };
   }
@@ -61,6 +127,7 @@ export function createSnapshot() {
     return {
       created: false,
       stashRef: null,
+      sensitiveBackupDir: backup.dir,
       message: `Snapshot failed (git exit ${result.status}): ${result.stderr.trim()}`,
     };
   }
@@ -72,6 +139,7 @@ export function createSnapshot() {
     return {
       created: false,
       stashRef: null,
+      sensitiveBackupDir: backup.dir,
       message: "Working tree clean — no snapshot needed.",
     };
   }
@@ -82,6 +150,7 @@ export function createSnapshot() {
   return {
     created: true,
     stashRef: stashMsg,
+    sensitiveBackupDir: backup.dir,
     message: `Snapshot created: stash "${stashMsg}"`,
   };
 }

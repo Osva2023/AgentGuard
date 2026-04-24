@@ -24,34 +24,11 @@ import { evaluate } from "./correlator.js";
 import { filterFired, suppression } from "./suppression.js";
 import { handleIncident } from "./enforcement.js";
 import { restoreSnapshot } from "./snapshot.js";
+import { isSensitive } from "./sensitive.js";
 
 // ─── Sensitive file patterns ─────────────────────────────────────────────────
-
-const SENSITIVE_PATTERNS = [
-  /^\.env(\..*)?$/,                         // .env, .env.local, .env.production
-  /\.(pem|key|p12|pfx|crt|cer)$/i,         // crypto keys / certs
-  /^id_(rsa|ecdsa|ed25519)(\.pub)?$/,       // SSH keys
-  /^package(-lock)?\.json$/,                // deps manifest
-  /^(Dockerfile|docker-compose\.ya?ml)$/i, // container config
-  /\.(config\.(js|ts|cjs|mjs))$/,          // build/tool configs
-  /\.(db|sqlite|sqlite3)$/,                 // databases
-  /^\.github\/workflows\/.+\.ya?ml$/,      // CI/CD
-  /^(\.gitconfig|\.npmrc|\.yarnrc)$/,      // tool credentials
-];
-
-const SAFE_EXTENSIONS = [
-  ".md", ".txt", ".log", ".json.lock",
-];
-
-function isSensitive(filePath) {
-  const basename = path.basename(filePath);
-  const rel = filePath;
-
-  // Never flag safe extensions
-  if (SAFE_EXTENSIONS.some(ext => basename.endsWith(ext))) return false;
-
-  return SENSITIVE_PATTERNS.some(re => re.test(basename) || re.test(rel));
-}
+// Patterns and isSensitive() live in ./sensitive.js so snapshot.js can reuse
+// them without creating a circular import.
 
 function riskLevel(filePath) {
   const basename = path.basename(filePath);
