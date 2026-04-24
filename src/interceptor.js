@@ -98,7 +98,10 @@ export async function runInterceptor({ agent, agentArgs, stashRef, config, stats
             console.error(chalk.red("\n[AgentGuard] Operation blocked."));
             logSessionEnd(agent);
             child.kill("SIGTERM");
-            process.exit(1);
+            setTimeout(() => {
+              try { child.kill("SIGKILL"); } catch {}
+              process.exit(1);
+            }, 500);
           },
           onResume: () => {
             extraOnResume?.();

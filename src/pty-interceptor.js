@@ -197,8 +197,24 @@ export async function runPtyInterceptor({
         console.error(chalk.red("\n[AgentGuard] Operation blocked."));
         cleanup();
         logSessionEnd(agent);
-        try { pty.kill(); } catch {}
-        resolve(1);
+        const pid = pty.pid;
+        try { pty.kill(); } catch {}  // SIGHUP (node-pty default)
+
+        // Escalate if the child ignores SIGHUP: SIGHUP → 500ms → SIGTERM →
+        // 500ms → SIGKILL. process.kill(pid, 0) probes existence; if the
+        // process is already gone it throws and we skip the next signal.
+        (async () => {
+          await new Promise((r) => setTimeout(r, 500));
+          try { process.kill(pid, 0); process.kill(pid, "SIGTERM"); } catch {}
+          await new Promise((r) => setTimeout(r, 500));
+          try { process.kill(pid, 0); process.kill(pid, "SIGKILL"); } catch {}
+
+          // Exit alt-screen, reset SGR attributes, land on a fresh line so
+          // any leftover bytes from the dying child don't corrupt the prompt.
+          process.stderr.write("\x1b[?1049l\x1b[0m\r\n");
+
+          resolve(1);
+        })();
       },
       onResume: () => {
         try { pty.resume(); } catch {}
