@@ -194,6 +194,10 @@ export async function runPtyInterceptor({
         logSnapshotRestore(snap, agent);
       },
       onTerminate: () => {
+        // Detach the onData handler first so no buffered PTY bytes reach
+        // process.stdout after the deny decision — prevents a garbage flood
+        // during the escalation window.
+        try { dataSub.dispose(); } catch {}
         console.error(chalk.red("\n[AgentGuard] Operation blocked."));
         cleanup();
         logSessionEnd(agent);
@@ -230,7 +234,7 @@ export async function runPtyInterceptor({
     let lineBuf = "";
     let handlingApproval = false; // prevent re-entrant prompts
 
-    pty.onData(async (data) => {
+    const dataSub = pty.onData(async (data) => {
       if (handlingApproval) return; // buffer scanning paused during prompt
 
       // Always forward raw PTY bytes to the user's terminal.
