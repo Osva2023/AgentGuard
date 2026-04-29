@@ -33,6 +33,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"syscall"
 	"time"
 )
@@ -58,6 +59,71 @@ type response struct {
 	Reason  string `json:"reason,omitempty"`
 }
 
+// ─── diagnostic trace ─────────────────────────────────────────────────────────
+//
+// Appends one JSON line per invocation to ~/.agentguard/wrapper-trace.log.
+// Used to verify whether the agent is actually routing through us via $SHELL.
+// If this file stays empty during an active session, the agent is bypassing
+// $SHELL and calling /bin/sh directly — the SHELL-env interception strategy
+// has no reach for that agent, and we need a different layer (Node hook,
+// LD_PRELOAD, etc.).
+//
+// To remove once the hypothesis is confirmed, delete this block and the
+// trace() calls in main().
+
+type traceEntry struct {
+	Time    string   `json:"time"`
+	Pid     int      `json:"pid"`
+	Ppid    int      `json:"ppid"`
+	Argv    []string `json:"argv"`
+	Session string   `json:"session,omitempty"`
+	Socket  string   `json:"socket,omitempty"`
+	Mode    string   `json:"mode"`
+	Cmd     string   `json:"cmd,omitempty"`
+	Note    string   `json:"note,omitempty"`
+}
+
+// trace writes one diagnostic line.  Best-effort: any failure (no $HOME,
+// disk full, permissions, etc.) is silently ignored — diagnostics must
+// never block the wrapper from doing its actual job.
+func trace(mode, cmd, note string) {
+	defer func() { _ = recover() }()
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	dir := filepath.Join(home, ".agentguard")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return
+	}
+	f, err := os.OpenFile(
+		filepath.Join(dir, "wrapper-trace.log"),
+		os.O_APPEND|os.O_CREATE|os.O_WRONLY,
+		0o600,
+	)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+
+	line, err := json.Marshal(traceEntry{
+		Time:    time.Now().UTC().Format(time.RFC3339Nano),
+		Pid:     os.Getpid(),
+		Ppid:    os.Getppid(),
+		Argv:    os.Args,
+		Session: os.Getenv("AGENTGUARD_SESSION_ID"),
+		Socket:  os.Getenv("AGENTGUARD_SOCKET"),
+		Mode:    mode,
+		Cmd:     cmd,
+		Note:    note,
+	})
+	if err != nil {
+		return
+	}
+	_, _ = f.Write(append(line, '\n'))
+}
+
 func main() {
 	args := os.Args[1:]
 
@@ -67,7 +133,13 @@ func main() {
 
 	// Pass-through cases.  When no session is active we are likely on the
 	// user's interactive shell (SHELL leaked) — we must not block anything.
-	if cmdIdx == -1 || sessionID == "" {
+	if cmdIdx == -1 {
+		trace("passthrough-non-c", "", "")
+		passthrough(args)
+		return
+	}
+	if sessionID == "" {
+		trace("passthrough-no-session", args[cmdIdx+1], "")
 		passthrough(args)
 		return
 	}
@@ -75,6 +147,7 @@ func main() {
 	// Misconfiguration: session active but socket address missing.  We have
 	// no way to reach the daemon, so fail-closed per the contract.
 	if socketPath == "" {
+		trace("fail-closed-no-socket", args[cmdIdx+1], "")
 		fmt.Fprintln(os.Stderr,
 			"[AgentGuard] AGENTGUARD_SESSION_ID set but AGENTGUARD_SOCKET missing — blocking command.")
 		os.Exit(denyExitCode)
@@ -91,6 +164,7 @@ func main() {
 	})
 	if err != nil {
 		// Fail-CLOSED: session is active and daemon unreachable.
+		trace("fail-closed-daemon-error", cmd, err.Error())
 		fmt.Fprintf(os.Stderr,
 			"[AgentGuard] adjudication daemon unreachable (%v) — blocking command.\n", err)
 		os.Exit(denyExitCode)
@@ -98,8 +172,10 @@ func main() {
 
 	switch resp.Outcome {
 	case "approved":
+		trace("approved", cmd, "")
 		passthrough(args)
 	case "denied":
+		trace("denied", cmd, resp.Reason)
 		if resp.Reason != "" {
 			fmt.Fprintf(os.Stderr, "[AgentGuard] Command blocked: %s\n", resp.Reason)
 		} else {
@@ -107,6 +183,7 @@ func main() {
 		}
 		os.Exit(denyExitCode)
 	default:
+		trace("unexpected-outcome", cmd, resp.Outcome)
 		fmt.Fprintf(os.Stderr,
 			"[AgentGuard] daemon returned unexpected outcome %q — blocking command.\n",
 			resp.Outcome)

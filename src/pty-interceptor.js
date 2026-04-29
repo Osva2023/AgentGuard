@@ -92,6 +92,25 @@ function resolveWrapperPath() {
   return null;
 }
 
+/**
+ * Locate the Node runtime hook (loaded via NODE_OPTIONS=--require=<path>).
+ *
+ * Catches Node-based agents (Codex CLI, Claude Code, aider) that bypass
+ * `$SHELL` and call `/bin/sh` directly through `child_process.exec`.  The
+ * hook patches `child_process` from inside the agent's own runtime so the
+ * shell binary is swapped at the call site.
+ *
+ * @returns {string|null}  Absolute path to the hook, or null if missing.
+ */
+function resolveNodeHookPath() {
+  const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+  const candidate = path.join(moduleDir, "node-hook.cjs");
+  try {
+    if (fs.statSync(candidate).isFile()) return candidate;
+  } catch {}
+  return null;
+}
+
 // ─── node-pty availability ───────────────────────────────────────────────────
 
 /** True when node-pty native bindings loaded successfully. */
@@ -319,6 +338,25 @@ export async function runPtyInterceptor({
       console.error(
         chalk.gray(`[AgentGuard] Shell wrapper: ${wrapperPath}`)
       );
+
+      // Layer 1.6 — Node runtime hook.  Most Node-based agents (Codex,
+      // Claude Code, aider) bypass $SHELL and call /bin/sh directly through
+      // child_process.exec, so the wrapper alone won't see them.  The hook
+      // patches child_process from inside the agent's runtime, swapping the
+      // shell binary at the call site.  Layered with the wrapper: same
+      // socket, same daemon, two interception points.
+      const hookPath = resolveNodeHookPath();
+      if (hookPath) {
+        const flag = `--require=${hookPath}`;
+        // Preserve any user-supplied NODE_OPTIONS by prepending ours so we
+        // run first.  NODE_OPTIONS is space-delimited.
+        env.NODE_OPTIONS = env.NODE_OPTIONS
+          ? `${flag} ${env.NODE_OPTIONS}`
+          : flag;
+        console.error(
+          chalk.gray(`[AgentGuard] Node hook:     ${hookPath}`)
+        );
+      }
     } else {
       console.error(
         chalk.yellow(
