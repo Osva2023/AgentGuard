@@ -48,6 +48,9 @@ ${chalk.bold("Examples:")}
   agentguard aider --model gpt-4
   agentguard --audit-only claude --print "clean up this project"
 
+${chalk.bold("Setup:")}
+  agentguard init              Interactive first-run setup wizard
+
 ${chalk.bold("Daemon (background file watcher):")}
   agentguard daemon start      Start the daemon detached
   agentguard daemon stop       Send SIGTERM to the running daemon
@@ -68,6 +71,14 @@ ${chalk.bold("Config (optional):")}
   Schema: autoApprove, autoDeny, rules.disabled, rules.custom,
           snapshot.enabled, snapshot.restoreOnDeny, auditLog.path
 `);
+  process.exit(0);
+}
+
+// ─── init sub-command ────────────────────────────────────────────────────────
+
+if (agent === "init") {
+  const { runInit } = await import("../src/init.js");
+  await runInit();
   process.exit(0);
 }
 
