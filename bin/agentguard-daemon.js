@@ -99,6 +99,18 @@ console.error(chalk.gray(`  Session:   ${sessionId}`));
 console.error(chalk.gray("  Mode:      audit-only (no enforcement, no Telegram)"));
 console.error("");
 
+// ─── pid file ────────────────────────────────────────────────────────────────
+
+// Written here (rather than only by `daemonStart()`) so that `agentguard daemon
+// status` works under launchd as well, which spawns this script directly.
+const PID_FILE = path.join(os.homedir(), ".agentguard", "daemon.pid");
+try {
+  fs.mkdirSync(path.dirname(PID_FILE), { recursive: true });
+  fs.writeFileSync(PID_FILE, String(process.pid));
+} catch (e) {
+  console.error(chalk.yellow(`[AgentGuard daemon] could not write PID file: ${e.message}`));
+}
+
 // ─── start watchers ──────────────────────────────────────────────────────────
 
 logSessionStart("daemon");
@@ -126,6 +138,7 @@ function shutdown(signal) {
   for (const w of watchers) {
     try { w.stop(); } catch {}
   }
+  try { fs.unlinkSync(PID_FILE); } catch {}
   logSessionEnd("daemon");
   process.exit(0);
 }

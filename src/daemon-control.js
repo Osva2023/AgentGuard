@@ -11,7 +11,7 @@
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { spawn } from "child_process";
+import { spawn, spawnSync } from "child_process";
 import { fileURLToPath } from "url";
 import chalk from "chalk";
 import { loadConfig } from "./config.js";
@@ -26,6 +26,10 @@ const DAEMON_BIN = path.resolve(
   "bin",
   "agentguard-daemon.js"
 );
+
+const LAUNCHD_LABEL = "com.agentguard.daemon";
+const LAUNCH_AGENTS_DIR = path.join(os.homedir(), "Library", "LaunchAgents");
+const PLIST_PATH = path.join(LAUNCH_AGENTS_DIR, `${LAUNCHD_LABEL}.plist`);
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -83,8 +87,13 @@ function humanUptime(ms) {
 }
 
 function readStartTime() {
-  // First line of daemon.log is written by daemonStart() as:
-  //   [<ISO>] AgentGuard daemon starting
+  // Prefer the PID file's mtime — it's rewritten by every daemon process on
+  // startup (manual via daemonStart() AND launchd via the daemon binary
+  // itself), so its mtime is the actual start time in both cases.
+  try {
+    return fs.statSync(PID_FILE).mtimeMs;
+  } catch {}
+  // Fallback: parse the header line written by daemonStart() to daemon.log.
   try {
     const fd = fs.openSync(LOG_FILE, "r");
     const buf = Buffer.alloc(256);
@@ -224,6 +233,142 @@ export async function daemonStatus() {
       console.log(`    • ${abs ?? raw}`);
     }
   }
+}
+
+// ─── launchd (macOS) ─────────────────────────────────────────────────────────
+
+function xmlEscape(s) {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function generatePlist() {
+  const nodeBin = process.execPath;
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>${xmlEscape(LAUNCHD_LABEL)}</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>${xmlEscape(nodeBin)}</string>
+    <string>${xmlEscape(DAEMON_BIN)}</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>${xmlEscape(LOG_FILE)}</string>
+  <key>StandardErrorPath</key>
+  <string>${xmlEscape(LOG_FILE)}</string>
+  <key>WorkingDirectory</key>
+  <string>${xmlEscape(os.homedir())}</string>
+</dict>
+</plist>
+`;
+}
+
+function isLaunchdLoaded() {
+  const r = spawnSync("launchctl", ["list", LAUNCHD_LABEL], { encoding: "utf8" });
+  return r.status === 0;
+}
+
+export async function daemonInstall() {
+  if (process.platform !== "darwin") {
+    console.error(
+      chalk.red(`[AgentGuard daemon] install is macOS-only (platform: ${process.platform})`)
+    );
+    process.exit(1);
+  }
+
+  ensureDir();
+
+  // If a manually-started daemon is running, stop it so launchd takes over cleanly.
+  const existing = readPid();
+  if (existing && isAlive(existing) && !isLaunchdLoaded()) {
+    console.error(
+      chalk.gray(`[AgentGuard daemon] stopping manually-started daemon (PID ${existing}) before install…`)
+    );
+    await daemonStop();
+  }
+
+  fs.mkdirSync(LAUNCH_AGENTS_DIR, { recursive: true });
+  fs.writeFileSync(PLIST_PATH, generatePlist());
+
+  // Best-effort unload of any prior registration so `load` doesn't fail on re-install.
+  spawnSync("launchctl", ["unload", PLIST_PATH], { encoding: "utf8" });
+
+  const loadResult = spawnSync("launchctl", ["load", "-w", PLIST_PATH], { encoding: "utf8" });
+  if (loadResult.status !== 0) {
+    console.error(
+      chalk.red(`[AgentGuard daemon] launchctl load failed: ${loadResult.stderr || loadResult.stdout}`)
+    );
+    process.exit(1);
+  }
+
+  // Give launchd a moment to spawn it, then verify.
+  await sleep(500);
+  const listResult = spawnSync("launchctl", ["list", LAUNCHD_LABEL], { encoding: "utf8" });
+  if (listResult.status !== 0) {
+    console.error(
+      chalk.red(`[AgentGuard daemon] launchd registered the job but reports it as not running. Check ${LOG_FILE}`)
+    );
+    process.exit(1);
+  }
+
+  // Parse the PID column (line like: `\t"PID" = 12345;`)
+  const pidMatch = listResult.stdout.match(/"PID"\s*=\s*(\d+);/);
+  const pid = pidMatch ? Number.parseInt(pidMatch[1], 10) : null;
+
+  console.error(chalk.green(`[AgentGuard daemon] installed and started`));
+  if (pid) console.error(chalk.gray(`  PID:   ${pid}`));
+  console.error(chalk.gray(`  Plist: ${PLIST_PATH}`));
+  console.error(chalk.gray(`  Log:   ${LOG_FILE}`));
+  console.error(
+    chalk.yellow(
+      `  Note: while installed, \`agentguard daemon stop\` only kills the process — ` +
+      `launchd will respawn it. Use \`agentguard daemon uninstall\` to disable.`
+    )
+  );
+}
+
+export async function daemonUninstall() {
+  if (process.platform !== "darwin") {
+    console.error(
+      chalk.red(`[AgentGuard daemon] uninstall is macOS-only (platform: ${process.platform})`)
+    );
+    process.exit(1);
+  }
+
+  if (!fs.existsSync(PLIST_PATH)) {
+    console.error(chalk.gray(`[AgentGuard daemon] not installed (no plist at ${PLIST_PATH})`));
+    return;
+  }
+
+  // unload stops the job *and* removes it from launchd; with KeepAlive=true this is
+  // the only way to actually stop the daemon.
+  const unloadResult = spawnSync("launchctl", ["unload", PLIST_PATH], { encoding: "utf8" });
+  if (unloadResult.status !== 0) {
+    console.error(
+      chalk.yellow(
+        `[AgentGuard daemon] launchctl unload reported an error (continuing): ${unloadResult.stderr || unloadResult.stdout}`
+      )
+    );
+  }
+
+  try { fs.unlinkSync(PLIST_PATH); } catch {}
+
+  // If launchctl killed the daemon hard, its own PID-file cleanup may not have run.
+  const pid = readPid();
+  if (!pid || !isAlive(pid)) removePidFile();
+
+  console.error(chalk.green(`[AgentGuard daemon] uninstalled`));
+  console.error(chalk.gray(`  Removed: ${PLIST_PATH}`));
 }
 
 // ─── logs ────────────────────────────────────────────────────────────────────
