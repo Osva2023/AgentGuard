@@ -1,5 +1,5 @@
 {
-  "name": "agentguard",
+  "name": "agentguard-dev",
   "version": "0.2.0",
   "description": "Universal shell wrapper that intercepts dangerous commands from AI coding agents",
   "type": "module",
