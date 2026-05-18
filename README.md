@@ -158,6 +158,14 @@ Snapshot is skipped when: the directory is not a git repository, the working tre
 **Requires Node.js 18 or later.** Git is strongly recommended — snapshot and rollback require it.
 
 ```bash
+npm install -g agentguard-dev
+```
+
+The CLI is published on npm as [`agentguard-dev`](https://www.npmjs.com/package/agentguard-dev). After install, the `agentguard` command is on your `PATH`.
+
+To work from source (track `main`, hack on rules, etc.):
+
+```bash
 git clone https://github.com/Osva2023/agentguard
 cd agentguard
 npm install
@@ -165,6 +173,22 @@ npm link
 ```
 
 `node-pty` native bindings compile during `npm install` via `node-gyp`. If the build fails, AgentGuard falls back to log-based interception automatically — no extra configuration needed.
+
+### First-run setup
+
+```bash
+agentguard init
+```
+
+An interactive wizard that:
+
+1. Asks which directories to watch (defaults to the current directory)
+2. Asks which agents you use — `claude`, `codex`, `aider`, `cursor`
+3. Offers to add shell aliases to `~/.zshrc` (e.g. `alias claude='agentguard claude'`)
+4. Offers to install the background daemon via launchd (macOS)
+5. Writes `~/.agentguard/config.json` and prints a summary
+
+Every step is optional — press Enter to skip. Existing config is preserved (it asks before overwriting) and aliases already declared in `~/.zshrc` outside the managed block are never shadowed.
 
 ---
 
@@ -207,6 +231,36 @@ agentguard --help
 ```bash
 agentguard dashboard
 ```
+
+---
+
+## Background daemon
+
+AgentGuard can run as a persistent file-watcher daemon that monitors configured directories without an active agent session. It uses audit-only mode (no prompts, no enforcement, no Telegram alerts) and writes every sensitive file change to `~/.agentguard/audit.log`.
+
+```bash
+agentguard daemon start      # launch in the background (detached)
+agentguard daemon stop       # SIGTERM the running daemon, wait for clean exit
+agentguard daemon status     # show PID, uptime, watched paths
+agentguard daemon logs       # tail -f ~/.agentguard/daemon.log
+
+# macOS — auto-start on login via launchd
+agentguard daemon install    # write plist to ~/Library/LaunchAgents and load it
+agentguard daemon uninstall  # unload and remove the plist
+```
+
+The daemon reads `watchPaths` from `~/.agentguard/config.json`:
+
+```json
+{
+  "watchPaths": [
+    "~/projects/app",
+    "/etc/myservice"
+  ]
+}
+```
+
+Under launchd the daemon is registered as `com.agentguard.daemon` with `RunAtLoad=true` and `KeepAlive=true`, so it starts on login and restarts on crash. While installed, `daemon stop` only kills the process — launchd respawns it. Use `daemon uninstall` to actually disable it.
 
 ---
 
@@ -304,20 +358,34 @@ When Telegram is configured, every sensitive file change during a session sends 
 - **✅ Keep** — accept the change.
 - **↩️ Rollback** — restore the file from the session snapshot in-place.
 
-Enable in `agentguard.config.json`:
+### Setup
+
+**1. Create a bot.** In Telegram, open a chat with [@BotFather](https://t.me/BotFather) and send `/newbot`. Follow the prompts to pick a name and username. BotFather replies with a token like `123456789:ABCdefGhIJK-lmnoPQRstUVWXyz` — that is your `botToken`.
+
+**2. Get your chat ID.** Open a chat with your new bot and send any message (e.g. `/start`). Then visit:
+
+```
+https://api.telegram.org/bot<YOUR_TOKEN>/getUpdates
+```
+
+In the JSON response, find `"chat":{"id":987654321,...}`. That number is your `chatId`. (If `result` is empty, send another message to the bot and refresh.)
+
+**3. Save the credentials.** Add them to `~/.agentguard/config.json` (create the file if it doesn't exist):
 
 ```json
 "notifications": {
   "telegram": {
     "enabled": true,
-    "botToken": "123456:ABC-your-bot-token",
+    "botToken": "123456789:ABCdefGhIJK-lmnoPQRstUVWXyz",
     "chatId": "987654321",
     "extraChatIds": []
   }
 }
 ```
 
-Or via env vars: `AGENTGUARD_TELEGRAM_BOT_TOKEN`, `AGENTGUARD_TELEGRAM_CHAT_ID`.
+`extraChatIds` is optional — additional Telegram user IDs (as strings) authorized to act on the same alerts (e.g. teammates).
+
+Or skip the config file and set env vars instead: `AGENTGUARD_TELEGRAM_BOT_TOKEN`, `AGENTGUARD_TELEGRAM_CHAT_ID`.
 
 **Rollback** is per-file (not session-wide). It tries `git checkout stash@{N} -- <path>` for tracked files, `stash@{N}^3` for untracked-in-stash files, then falls back to a copy from `~/.agentguard/snapshots/{sessionId}/<path>` for gitignored files like `.env`. The stash is never popped — multiple files can be rolled back independently. If no source succeeds, the buttons stay live for retry.
 
@@ -514,6 +582,10 @@ Runtime: `chalk`, `chokidar`, `node-pty`, `express`. Dev: `jest`.
 - [x] Audit-only mode — observe without blocking (`auditOnly: true` / `--audit-only`)
 - [x] Policy packs — named presets: `dev`, `strict`, `ci`
 - [x] Local web dashboard
+- [x] Persistent background daemon — file watcher runs permanently, monitoring configured directories without requiring an active agentguard session (`agentguard daemon start`). Auto-starts on login via launchd on macOS (`agentguard daemon install`).
+- [x] Telegram approve/deny — respond to file change alerts directly from Telegram with inline buttons to keep or rollback the change.
+- [x] First-run setup wizard — `agentguard init` configures watch paths, shell aliases, and the launchd daemon interactively.
+- [x] npm publish — installable globally via `npm install -g agentguard-dev`.
 
 **Not yet implemented:**
 - [ ] Intent context — compare agent actions against your original prompt; alert when the agent touches something outside declared scope
@@ -521,10 +593,7 @@ Runtime: `chalk`, `chokidar`, `node-pty`, `express`. Dev: `jest`.
 - [ ] Optional Linux eBPF backend — kernel-level telemetry for silent commands
 - [ ] Verified multi-agent testing — Codex CLI, aider, Continue need real sessions
 - [ ] Demo video / GIF
-- [ ] Persistent background daemon — file watcher runs permanently as a system service (launchd on macOS), monitoring configured directories without requiring an active agentguard session. Sends Telegram alerts on sensitive file changes. No interactive prompts — observe and alert only.
 - [ ] IDE plugin — VS Code and IntelliJ extensions that provide file watcher coverage for agent sessions running inside the IDE, where the CLI wrapper is not available.
-- [ ] Telegram approve/deny — respond to file change alerts directly from Telegram with inline buttons to keep or rollback the change. Closes the loop for remote agent supervision.
-- [ ] npm publish — install via `npm install -g agentguard` without cloning the repo. Current `npm link` requirement is a barrier for new users.
 - [ ] Allowlists and scoped path exceptions — allow writes to specific directories without disabling rules entirely. Example: always allow changes to `src/generated/` or `dist/`.
 - [ ] Team plan — centralized policy server where an admin defines rules and all team members run under them. Shared audit log and dashboard for managers. Use cases: compliance, onboarding, scope drift in monorepos.
 - [ ] Token and cost tracking — capture token usage reported by agents at session end, aggregate by developer and project, report actual AI costs. Useful for CTOs and finance teams managing AI spend at scale.

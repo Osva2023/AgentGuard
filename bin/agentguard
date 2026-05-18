@@ -26,6 +26,7 @@ import { printSessionSummary } from "../src/summary.js";
 import { startFileWatcher } from "../src/filewatcher.js";
 import { showPostActionReview } from "../src/reviewer.js";
 import { startListener, cleanupPendingAlerts } from "../src/telegram-listener.js";
+import { isDaemonRunning } from "../src/daemon-control.js";
 
 // ─── parse args ───────────────────────────────────────────────────────────────
 
@@ -48,6 +49,9 @@ ${chalk.bold("Examples:")}
   agentguard aider --model gpt-4
   agentguard --audit-only claude --print "clean up this project"
 
+${chalk.bold("Setup:")}
+  agentguard init              Interactive first-run setup wizard
+
 ${chalk.bold("Daemon (background file watcher):")}
   agentguard daemon start      Start the daemon detached
   agentguard daemon stop       Send SIGTERM to the running daemon
@@ -68,6 +72,14 @@ ${chalk.bold("Config (optional):")}
   Schema: autoApprove, autoDeny, rules.disabled, rules.custom,
           snapshot.enabled, snapshot.restoreOnDeny, auditLog.path
 `);
+  process.exit(0);
+}
+
+// ─── init sub-command ────────────────────────────────────────────────────────
+
+if (agent === "init") {
+  const { runInit } = await import("../src/init.js");
+  await runInit();
   process.exit(0);
 }
 
@@ -152,12 +164,24 @@ console.error(""); // blank line before agent output begins
 // Long-polls Telegram for callback_query updates from the inline Keep /
 // Rollback buttons on file-change alerts.  No-op when Telegram is not
 // configured (returns a stub stop()).
-const listener = startListener({
-  config,
-  sessionId,
-  cwd: process.cwd(),
-  agent,
-});
+//
+// Skip when the daemon is already running — Telegram only allows one
+// getUpdates poller per bot token (otherwise it returns 409 Conflict).
+// The daemon owns the listener in that case.
+let listener;
+if (isDaemonRunning()) {
+  console.error(
+    chalk.gray("[AgentGuard] Daemon running — Telegram listener handled by daemon")
+  );
+  listener = { stop() {} };
+} else {
+  listener = startListener({
+    config,
+    sessionId,
+    cwd: process.cwd(),
+    agent,
+  });
+}
 
 // ─── choose interceptor ───────────────────────────────────────────────────────
 
