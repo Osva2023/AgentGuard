@@ -158,6 +158,14 @@ Snapshot is skipped when: the directory is not a git repository, the working tre
 **Requires Node.js 18 or later.** Git is strongly recommended — snapshot and rollback require it.
 
 ```bash
+npm install -g agentguard-dev
+```
+
+The CLI is published on npm as [`agentguard-dev`](https://www.npmjs.com/package/agentguard-dev). After install, the `agentguard` command is on your `PATH`.
+
+To work from source (track `main`, hack on rules, etc.):
+
+```bash
 git clone https://github.com/Osva2023/agentguard
 cd agentguard
 npm install
@@ -350,20 +358,34 @@ When Telegram is configured, every sensitive file change during a session sends 
 - **✅ Keep** — accept the change.
 - **↩️ Rollback** — restore the file from the session snapshot in-place.
 
-Enable in `agentguard.config.json`:
+### Setup
+
+**1. Create a bot.** In Telegram, open a chat with [@BotFather](https://t.me/BotFather) and send `/newbot`. Follow the prompts to pick a name and username. BotFather replies with a token like `123456789:ABCdefGhIJK-lmnoPQRstUVWXyz` — that is your `botToken`.
+
+**2. Get your chat ID.** Open a chat with your new bot and send any message (e.g. `/start`). Then visit:
+
+```
+https://api.telegram.org/bot<YOUR_TOKEN>/getUpdates
+```
+
+In the JSON response, find `"chat":{"id":987654321,...}`. That number is your `chatId`. (If `result` is empty, send another message to the bot and refresh.)
+
+**3. Save the credentials.** Add them to `~/.agentguard/config.json` (create the file if it doesn't exist):
 
 ```json
 "notifications": {
   "telegram": {
     "enabled": true,
-    "botToken": "123456:ABC-your-bot-token",
+    "botToken": "123456789:ABCdefGhIJK-lmnoPQRstUVWXyz",
     "chatId": "987654321",
     "extraChatIds": []
   }
 }
 ```
 
-Or via env vars: `AGENTGUARD_TELEGRAM_BOT_TOKEN`, `AGENTGUARD_TELEGRAM_CHAT_ID`.
+`extraChatIds` is optional — additional Telegram user IDs (as strings) authorized to act on the same alerts (e.g. teammates).
+
+Or skip the config file and set env vars instead: `AGENTGUARD_TELEGRAM_BOT_TOKEN`, `AGENTGUARD_TELEGRAM_CHAT_ID`.
 
 **Rollback** is per-file (not session-wide). It tries `git checkout stash@{N} -- <path>` for tracked files, `stash@{N}^3` for untracked-in-stash files, then falls back to a copy from `~/.agentguard/snapshots/{sessionId}/<path>` for gitignored files like `.env`. The stash is never popped — multiple files can be rolled back independently. If no source succeeds, the buttons stay live for retry.
 
@@ -563,6 +585,7 @@ Runtime: `chalk`, `chokidar`, `node-pty`, `express`. Dev: `jest`.
 - [x] Persistent background daemon — file watcher runs permanently, monitoring configured directories without requiring an active agentguard session (`agentguard daemon start`). Auto-starts on login via launchd on macOS (`agentguard daemon install`).
 - [x] Telegram approve/deny — respond to file change alerts directly from Telegram with inline buttons to keep or rollback the change.
 - [x] First-run setup wizard — `agentguard init` configures watch paths, shell aliases, and the launchd daemon interactively.
+- [x] npm publish — installable globally via `npm install -g agentguard-dev`.
 
 **Not yet implemented:**
 - [ ] Intent context — compare agent actions against your original prompt; alert when the agent touches something outside declared scope
@@ -571,7 +594,6 @@ Runtime: `chalk`, `chokidar`, `node-pty`, `express`. Dev: `jest`.
 - [ ] Verified multi-agent testing — Codex CLI, aider, Continue need real sessions
 - [ ] Demo video / GIF
 - [ ] IDE plugin — VS Code and IntelliJ extensions that provide file watcher coverage for agent sessions running inside the IDE, where the CLI wrapper is not available.
-- [ ] npm publish — install via `npm install -g agentguard` without cloning the repo. Current `npm link` requirement is a barrier for new users.
 - [ ] Allowlists and scoped path exceptions — allow writes to specific directories without disabling rules entirely. Example: always allow changes to `src/generated/` or `dist/`.
 - [ ] Team plan — centralized policy server where an admin defines rules and all team members run under them. Shared audit log and dashboard for managers. Use cases: compliance, onboarding, scope drift in monorepos.
 - [ ] Token and cost tracking — capture token usage reported by agents at session end, aggregate by developer and project, report actual AI costs. Useful for CTOs and finance teams managing AI spend at scale.
