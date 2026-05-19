@@ -40,6 +40,14 @@ function riskLevel(filePath) {
   if (/^id_(rsa|ecdsa|ed25519)$/.test(basename)) return "CRITICAL";
   if (/^\.github\/workflows/.test(filePath)) return "HIGH";
   if (/^package(-lock)?\.json$/.test(basename)) return "WARN";
+  // Agent memory files — persistent instructions that survive between
+  // sessions and could be poisoned.  Same risk band as .env.
+  if (/^CLAUDE\.md$/.test(basename)) return "HIGH";
+  if (/^\.cursorrules$/.test(basename)) return "HIGH";
+  if (/^\.claude\/(settings\.json|memory)/.test(filePath)) return "HIGH";
+  if (/^\.hermes\//.test(filePath)) return "HIGH";
+  if (/^\.aider\.(conf\.ya?ml|tags\.cache)/.test(basename)) return "HIGH";
+  if (/^(agent-memory|memories)\.json$/.test(basename)) return "HIGH";
   return "WARN";
 }
 
