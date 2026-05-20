@@ -59,6 +59,8 @@ ${chalk.bold("Daemon (background file watcher):")}
   agentguard daemon logs       Tail ~/.agentguard/daemon.log
   agentguard daemon install    macOS: register with launchd (auto-start on login)
   agentguard daemon uninstall  macOS: unregister from launchd
+  agentguard daemon report     Summarise audit log (alias: agentguard report)
+                               Accepts --days=N (default 1 = today)
 
 ${chalk.bold("What it does:")}
   • Creates a git snapshot of your working tree before the session starts
@@ -91,10 +93,26 @@ if (agent === "dashboard") {
   process.exit(0);
 }
 
+// ─── report sub-command (top-level alias) ────────────────────────────────────
+
+if (agent === "report") {
+  const { runReport, parseDaysFlag } = await import("../src/report.js");
+  runReport({ days: parseDaysFlag(agentArgs) });
+  process.exit(0);
+}
+
 // ─── daemon sub-command ──────────────────────────────────────────────────────
 
 if (agent === "daemon") {
   const sub = agentArgs[0];
+  const subArgs = agentArgs.slice(1);
+
+  if (sub === "report") {
+    const { runReport, parseDaysFlag } = await import("../src/report.js");
+    runReport({ days: parseDaysFlag(subArgs) });
+    process.exit(0);
+  }
+
   const mod = await import("../src/daemon-control.js");
   const handlers = {
     start:     mod.daemonStart,
@@ -105,7 +123,7 @@ if (agent === "daemon") {
     uninstall: mod.daemonUninstall,
   };
   if (!sub || !handlers[sub]) {
-    console.error("Usage: agentguard daemon <start|stop|status|logs|install|uninstall>");
+    console.error("Usage: agentguard daemon <start|stop|status|logs|install|uninstall|report>");
     process.exit(1);
   }
   await handlers[sub]();
