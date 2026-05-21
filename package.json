@@ -1,6 +1,6 @@
 {
   "name": "agentguard-dev",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Universal shell wrapper that intercepts dangerous commands from AI coding agents",
   "type": "module",
   "main": "src/index.js",
@@ -12,7 +12,12 @@
     "src/",
     "shell-wrapper/main.go",
     "shell-wrapper/build.sh",
-    "shell-wrapper/agentguard-shell.sh"
+    "shell-wrapper/agentguard-shell.sh",
+    "tray/main.js",
+    "tray/preload.js",
+    "tray/index.html",
+    "tray/package.json",
+    "tray/make-icon.cjs"
   ],
   "scripts": {
     "start": "node bin/agentguard",
