@@ -62,6 +62,9 @@ ${chalk.bold("Daemon (background file watcher):")}
   agentguard daemon report     Summarise audit log (alias: agentguard report)
                                Accepts --days=N (default 1 = today)
 
+${chalk.bold("Menu bar app (macOS):")}
+  agentguard tray              Launch the menu bar tray app (shows daemon status)
+
 ${chalk.bold("What it does:")}
   • Creates a git snapshot of your working tree before the session starts
   • Wraps the agent process and monitors its output for dangerous commands
@@ -98,6 +101,40 @@ if (agent === "dashboard") {
 if (agent === "report") {
   const { runReport, parseDaysFlag } = await import("../src/report.js");
   runReport({ days: parseDaysFlag(agentArgs) });
+  process.exit(0);
+}
+
+// ─── tray sub-command ────────────────────────────────────────────────────────
+
+if (agent === "tray") {
+  const { spawn } = await import("child_process");
+  const path = await import("path");
+  const fs = await import("fs");
+  const { fileURLToPath } = await import("url");
+
+  const trayDir = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "..",
+    "tray"
+  );
+  const electronBin = path.join(trayDir, "node_modules", ".bin", "electron");
+
+  if (!fs.existsSync(electronBin)) {
+    console.error(
+      chalk.red("[AgentGuard] tray dependencies not installed.")
+    );
+    console.error(chalk.gray(`  Run: cd ${trayDir} && npm install`));
+    process.exit(1);
+  }
+
+  const child = spawn(electronBin, [trayDir], {
+    detached: true,
+    stdio: "ignore",
+  });
+  child.unref();
+  console.error(
+    chalk.green(`[AgentGuard] tray launched (PID ${child.pid})`)
+  );
   process.exit(0);
 }
 
