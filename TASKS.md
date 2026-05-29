@@ -214,7 +214,8 @@
 **Files:** `ARCHITECTURE.md` (crear)  
 **Scope:** Documento técnico en el repo explicando la arquitectura, flujo de datos, y cómo contribuir. Basado en el PDF de documentación generado el 27 de mayo. Versión markdown para que Claude Code lo pueda leer directamente. Crítico para sesiones remotas.  
 **Acceptance:** Un developer nuevo (o Claude Code en modo remoto) puede entender la arquitectura leyendo ARCHITECTURE.md en 10 minutos.  
-**Status:** TODO
+**Status:** DONE  
+**Nota:** `ARCHITECTURE.md` creado en la raíz (190 líneas, < 300). 10 secciones: overview, stack, modos de operación, 3 capas de defensa, diagrama ASCII del flujo de datos, tabla de módulos (archivo|responsabilidad|imports), formato del audit log (JSONL + tipos de evento + campos), config.json, convenciones ESM/seams/exports, y flujo de contribución en modo remoto (dev, npm test, archivos protegidos, commit/push). Basado en el código real (verificado contra `index.js`, `logger.js`, `config.js`, etc.).
 
 ---
 
