@@ -15,9 +15,11 @@
  */
 
 import chokidar from "chokidar";
+import fs from "fs";
 import path from "path";
 import chalk from "chalk";
-import { logDetected, logIntercepted, logSessionEnd, logSnapshotRestore } from "./logger.js";
+import { log, logDetected, logIntercepted, logSessionEnd, logSnapshotRestore } from "./logger.js";
+import { isMemoryFile, scanMemoryFile } from "./memory-scanner.js";
 import { decodeFileEvent } from "./decoder.js";
 import { bus } from "./event-bus.js";
 import { evaluate } from "./correlator.js";
@@ -60,6 +62,20 @@ function riskLevel(filePath) {
   if (/^\.aider\.(conf\.ya?ml|tags\.cache)/.test(basename)) return "HIGH";
   if (/^(agent-memory|memories)\.json$/.test(basename)) return "HIGH";
   return "WARN";
+}
+
+// Record the result of an agent-memory content scan to the audit log (TASK-021).
+// Always logged (suspicious or not) for observability.
+function logMemoryScan(rel, scan, agent, watchPath) {
+  log({
+    event: "memory_scan",
+    file: rel,
+    suspicious: scan.suspicious,
+    patterns: scan.patterns,
+    severity: scan.severity,
+    agent,
+    watchPath,
+  });
 }
 
 // ─── Telegram deferral check ─────────────────────────────────────────────────
@@ -189,7 +205,24 @@ export function startFileWatcher({
     // rule further down awaits an interactive prompt.  fileChanges + stats
     // updates are sync and order-independent.
     const sensitive = isSensitive(rel);
-    const level = sensitive ? riskLevel(rel) : "SAFE";
+    let level = sensitive ? riskLevel(rel) : "SAFE";
+    let sensitiveReason = "Sensitive file modified by agent";
+
+    // ── Agent-memory content scan (TASK-021) ──────────────────────────────────
+    // For sensitive agent-memory files (CLAUDE.md, .cursorrules, .hermes/,
+    // .claude/, .aider.*) read the content and scan for prompt-injection /
+    // poisoning. A hit escalates the level to CRITICAL so it flows through the
+    // audit log, threshold gate, and every alert channel below.
+    let memoryScan = null;
+    if (sensitive && event !== "deleted" && isMemoryFile(rel)) {
+      let content = "";
+      try { content = fs.readFileSync(filePath, "utf8"); } catch {}
+      memoryScan = scanMemoryFile(rel, content);
+      if (memoryScan.suspicious) {
+        level = "CRITICAL";
+        sensitiveReason = "Possible prompt injection in agent memory file";
+      }
+    }
 
     fileChanges.push({ event, file: rel, level, time: new Date().toISOString() });
 
@@ -206,10 +239,15 @@ export function startFileWatcher({
       });
 
       if (action === "dedup") {
-        logIntercepted({ command: `${event}: ${rel}`, level, reason: "Sensitive file modified by agent", agent, watchPath: cwd });
+        logIntercepted({ command: `${event}: ${rel}`, level, reason: sensitiveReason, agent, watchPath: cwd });
+        if (memoryScan) logMemoryScan(rel, memoryScan, agent, cwd);
         console.error(chalk.gray(`[AgentGuard] 📝 sensitive: ${rel} (already alerted this session)`));
       } else if (action === "fire") {
-        logIntercepted({ command: `${event}: ${rel}`, level, reason: "Sensitive file modified by agent", agent, watchPath: cwd });
+        logIntercepted({ command: `${event}: ${rel}`, level, reason: sensitiveReason, agent, watchPath: cwd });
+        if (memoryScan) logMemoryScan(rel, memoryScan, agent, cwd);
+        if (memoryScan?.suspicious) {
+          console.error(chalk.red(`[AgentGuard] ⚠️  memory scan: possible prompt injection in ${rel} — ${memoryScan.patterns.join("; ")}`));
+        }
         console.error(chalk.gray(`[AgentGuard] 📝 sensitive: ${rel}`));
 
         // Gate noisy out-of-band channels (Telegram + macOS popup) on the
