@@ -87,6 +87,25 @@ test("notifications.dailyReport override merges with defaults (TASK-013)", () =>
   assert.strictEqual(cfg2.notifications.dailyReport.hour, 8);
 });
 
+test("notifications.slack/discord defaults: empty webhookUrl (TASK-020)", () => {
+  const cfg = mergeConfig(DEFAULT_CONFIG, {});
+  assert.strictEqual(cfg.notifications.slack.webhookUrl, "");
+  assert.strictEqual(cfg.notifications.discord.webhookUrl, "");
+});
+
+test("notifications.slack/discord webhookUrl override merges (TASK-020)", () => {
+  const cfg = mergeConfig(DEFAULT_CONFIG, {
+    notifications: {
+      slack: { webhookUrl: "https://hooks.slack.com/x" },
+      discord: { webhookUrl: "https://discord.com/api/webhooks/y" },
+    },
+  });
+  assert.strictEqual(cfg.notifications.slack.webhookUrl, "https://hooks.slack.com/x");
+  assert.strictEqual(cfg.notifications.discord.webhookUrl, "https://discord.com/api/webhooks/y");
+  // unrelated channels untouched
+  assert.strictEqual(cfg.notifications.telegram.enabled, false);
+});
+
 test("notifications.email default is disabled (TASK-012)", () => {
   const cfg = mergeConfig(DEFAULT_CONFIG, {});
   assert.strictEqual(cfg.notifications.email.enabled, false);

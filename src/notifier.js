@@ -436,6 +436,130 @@ export async function sendEmailAlert(
   }
 }
 
+// ─── Webhook notifiers (Slack / Discord) ───────────────────────────────────────
+//
+// Informational-only channels — no rollback buttons. Native fetch (Node 18+),
+// no extra dependencies. Each is "configured" purely by the presence of a
+// webhookUrl (no separate enable flag), mirroring how incoming webhooks work.
+
+// Discord embed colors are 24-bit integers; match the alert palette.
+const DISCORD_LEVEL_COLOR = { CRITICAL: 0xe74c3c, HIGH: 0xe67e22, WARN: 0xf39c12 };
+const DISCORD_DEFAULT_COLOR = 0x94a3b8;
+
+function getSlackWebhook(config) {
+  return config?.notifications?.slack?.webhookUrl || "";
+}
+function getDiscordWebhook(config) {
+  return config?.notifications?.discord?.webhookUrl || "";
+}
+
+/** True when a Slack incoming-webhook URL is configured. */
+export function isSlackConfigured(config) {
+  return !!getSlackWebhook(config);
+}
+
+/** True when a Discord webhook URL is configured. */
+export function isDiscordConfigured(config) {
+  return !!getDiscordWebhook(config);
+}
+
+// POST a JSON payload to a webhook. Fire-and-forget: logs failures to stderr,
+// never throws. Returns { sent } so callers/tests can assert.
+async function postWebhook(url, payload, label) {
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const body = await (res.text?.() ?? Promise.resolve("")).catch(() => "");
+      process.stderr.write(
+        `[AgentGuard] ${label} webhook failed (HTTP ${res.status}): ${body}\n`
+      );
+      return { sent: false, status: res.status };
+    }
+    return { sent: true };
+  } catch (err) {
+    process.stderr.write(`[AgentGuard] ${label} webhook error: ${err.message}\n`);
+    return { sent: false, error: err.message };
+  }
+}
+
+/**
+ * Send an informational Slack alert (Block Kit) for a sensitive file change.
+ * Silently no-ops when no webhookUrl is configured.
+ *
+ * @param {{file:string, level:string, event:string, sessionId?:string, project?:string}} params
+ * @param {object} [config]
+ * @returns {Promise<{sent:boolean, skipped?:string, status?:number, error?:string}>}
+ */
+export async function sendSlackAlert({ file, level, event, sessionId, project }, config) {
+  if (!isSlackConfigured(config)) return { sent: false, skipped: "not-configured" };
+
+  const proj = project || projectFromFile(file) || "(project root)";
+  const ts = new Date().toISOString();
+  const shortSession = sessionId ? sessionId.slice(0, 8) : "unknown";
+
+  const payload = {
+    blocks: [
+      {
+        type: "header",
+        text: { type: "plain_text", text: `[AgentGuard] ${level}: ${file} ${event}`, emoji: true },
+      },
+      {
+        type: "section",
+        fields: [
+          { type: "mrkdwn", text: `*File:*\n${file}` },
+          { type: "mrkdwn", text: `*Project:*\n${proj}` },
+          { type: "mrkdwn", text: `*Level:*\n${level}` },
+          { type: "mrkdwn", text: `*Time:*\n${ts}` },
+        ],
+      },
+      {
+        type: "context",
+        elements: [{ type: "mrkdwn", text: `Session ${shortSession} · AgentGuard by OzForce Labs` }],
+      },
+    ],
+  };
+
+  return postWebhook(getSlackWebhook(config), payload, "Slack");
+}
+
+/**
+ * Send an informational Discord alert (embed) for a sensitive file change.
+ * Silently no-ops when no webhookUrl is configured.
+ *
+ * @param {{file:string, level:string, event:string, sessionId?:string, project?:string}} params
+ * @param {object} [config]
+ * @returns {Promise<{sent:boolean, skipped?:string, status?:number, error?:string}>}
+ */
+export async function sendDiscordAlert({ file, level, event, sessionId, project }, config) {
+  if (!isDiscordConfigured(config)) return { sent: false, skipped: "not-configured" };
+
+  const proj = project || projectFromFile(file) || "(project root)";
+  const ts = new Date().toISOString();
+  const shortSession = sessionId ? sessionId.slice(0, 8) : "unknown";
+
+  const payload = {
+    embeds: [
+      {
+        title: `[AgentGuard] ${level}: ${file} ${event}`,
+        color: DISCORD_LEVEL_COLOR[level] ?? DISCORD_DEFAULT_COLOR,
+        fields: [
+          { name: "File", value: String(file), inline: true },
+          { name: "Project", value: String(proj), inline: true },
+          { name: "Level", value: String(level), inline: true },
+          { name: "Time", value: ts, inline: false },
+        ],
+        footer: { text: `Session ${shortSession} · AgentGuard` },
+      },
+    ],
+  };
+
+  return postWebhook(getDiscordWebhook(config), payload, "Discord");
+}
+
 // ─── severity threshold ───────────────────────────────────────────────────────
 
 const LEVEL_ORDER = { WARN: 0, HIGH: 1, CRITICAL: 2 };

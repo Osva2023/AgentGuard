@@ -262,7 +262,8 @@
 **Files:** `src/notifier.js`, `src/config.js`  
 **Scope:** Soporte para webhooks de Slack y Discord. Config: `notifications.slack.webhookUrl`, `notifications.discord.webhookUrl`. Solo alertas (sin botones de rollback — los webhooks de Slack/Discord no soportan interactividad sin una Slack App completa). Mismo formato que el email: archivo, nivel, timestamp, proyecto.  
 **Acceptance:** Cuando `.env` se modifica, llega un mensaje al canal de Slack/Discord configurado.  
-**Status:** TODO
+**Status:** DONE  
+**Nota:** `notifier.js`: `sendSlackAlert`/`sendDiscordAlert` (+ `isSlackConfigured`/`isDiscordConfigured`), fetch nativo (sin deps nuevas), informativos (sin botones). Slack = Block Kit (header `[AgentGuard] <LEVEL>: <file> <event>` + section con File/Project/Level/Time + context con session); Discord = embed con color por nivel (CRITICAL `0xe74c3c` rojo / HIGH `0xe67e22` naranja / WARN `0xf39c12` amarillo) y fields File/Project/Level/Time + footer con session. "Configurado" = `webhookUrl` presente (sin flag enabled). `config.js`: `notifications.slack.webhookUrl` y `notifications.discord.webhookUrl` ("") + merge. `filewatcher.js`: dispara ambos (fire-and-forget) cuando `passesThreshold` y su webhook está configurado, independiente de Telegram/email. Tests en notifier.test.js (fetch mockeado: payloads Slack/Discord, colores por nivel, skip sin config) y config.test.js.
 
 ---
 

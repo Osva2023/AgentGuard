@@ -28,8 +28,12 @@ import { isSensitive } from "./sensitive.js";
 import {
   isNotifierConfigured,
   isEmailConfigured,
+  isSlackConfigured,
+  isDiscordConfigured,
   meetsThreshold,
   sendEmailAlert,
+  sendSlackAlert,
+  sendDiscordAlert,
   sendFileChangeAlert,
   sendSystemNotification,
 } from "./notifier.js";
@@ -245,6 +249,22 @@ export function startFileWatcher({
         if (passesThreshold && isEmailConfigured(config)) {
           sendEmailAlert(
             { file: rel, level, event, sessionId, agent, project: path.basename(cwd) },
+            config
+          ).catch(() => {});
+        }
+
+        // Slack / Discord webhook alerts (informational, no rollback) —
+        // fire-and-forget. Each gated on passesThreshold and its own
+        // webhookUrl, independent of the other channels.
+        if (passesThreshold && isSlackConfigured(config)) {
+          sendSlackAlert(
+            { file: rel, level, event, sessionId, project: path.basename(cwd) },
+            config
+          ).catch(() => {});
+        }
+        if (passesThreshold && isDiscordConfigured(config)) {
+          sendDiscordAlert(
+            { file: rel, level, event, sessionId, project: path.basename(cwd) },
             config
           ).catch(() => {});
         }

@@ -131,6 +131,14 @@ export const DEFAULT_CONFIG = {
       /** Local hour (0–23) to send the daily report. */
       hour: 8,
     },
+    slack: {
+      /** Slack incoming-webhook URL. Set it to enable informational Slack alerts. */
+      webhookUrl: "",
+    },
+    discord: {
+      /** Discord webhook URL. Set it to enable informational Discord alerts. */
+      webhookUrl: "",
+    },
   },
   /**
    * Directories to watch when running the daemon (bin/agentguard-daemon.js).
@@ -232,6 +240,14 @@ export function mergeConfig(defaults, overrides) {
       dailyReport: {
         ...defaults.notifications.dailyReport,
         ...(overrides.notifications?.dailyReport ?? {}),
+      },
+      slack: {
+        ...defaults.notifications.slack,
+        ...(overrides.notifications?.slack ?? {}),
+      },
+      discord: {
+        ...defaults.notifications.discord,
+        ...(overrides.notifications?.discord ?? {}),
       },
     },
     watchPaths: overrides.watchPaths ?? [...defaults.watchPaths],

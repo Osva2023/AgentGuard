@@ -20,6 +20,10 @@ import {
   meetsThreshold,
   isEmailConfigured,
   sendEmailAlert,
+  isSlackConfigured,
+  isDiscordConfigured,
+  sendSlackAlert,
+  sendDiscordAlert,
 } from "../src/notifier.js";
 
 let passed = 0;
@@ -652,6 +656,99 @@ await testAsync("sendEmailAlert → skips (no transport) when not configured", a
   );
   assert.deepStrictEqual(out, { sent: false, skipped: "not-configured" });
   assert.strictEqual(created, false, "createTransport must not be called");
+});
+
+// ─── Webhook notifiers: Slack / Discord (TASK-020) ────────────────────────────
+
+const slackCfg = { notifications: { slack: { webhookUrl: "https://hooks.slack.com/services/T/B/X" } } };
+const discordCfg = { notifications: { discord: { webhookUrl: "https://discord.com/api/webhooks/1/abc" } } };
+
+test("isSlackConfigured / isDiscordConfigured reflect webhookUrl presence", () => {
+  assert.strictEqual(isSlackConfigured(slackCfg), true);
+  assert.strictEqual(isSlackConfigured({}), false);
+  assert.strictEqual(isSlackConfigured({ notifications: { slack: { webhookUrl: "" } } }), false);
+  assert.strictEqual(isDiscordConfigured(discordCfg), true);
+  assert.strictEqual(isDiscordConfigured({}), false);
+});
+
+function captureFetch() {
+  const cap = {};
+  const original = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    cap.url = url;
+    cap.body = JSON.parse(opts.body);
+    return { ok: true, text: async () => "" };
+  };
+  return { cap, restore: () => { globalThis.fetch = original; } };
+}
+
+await testAsync("sendSlackAlert → posts Block Kit payload to the webhook", async () => {
+  const { cap, restore } = captureFetch();
+  try {
+    const out = await sendSlackAlert(
+      { file: ".env", level: "HIGH", event: "modified", sessionId: "abc12345", project: "proj" },
+      slackCfg
+    );
+    assert.strictEqual(out.sent, true);
+    assert.strictEqual(cap.url, slackCfg.notifications.slack.webhookUrl);
+    assert.strictEqual(cap.body.blocks[0].type, "header");
+    assert.strictEqual(cap.body.blocks[0].text.text, "[AgentGuard] HIGH: .env modified");
+    const fields = cap.body.blocks[1].fields.map((f) => f.text);
+    assert.ok(fields.includes("*File:*\n.env"));
+    assert.ok(fields.includes("*Project:*\nproj"));
+    assert.ok(fields.includes("*Level:*\nHIGH"));
+    assert.ok(fields.some((t) => t.startsWith("*Time:*\n")));
+  } finally {
+    restore();
+  }
+});
+
+await testAsync("sendDiscordAlert → posts embed with level color + fields", async () => {
+  const { cap, restore } = captureFetch();
+  try {
+    const out = await sendDiscordAlert(
+      { file: ".env", level: "HIGH", event: "modified", sessionId: "abc12345", project: "proj" },
+      discordCfg
+    );
+    assert.strictEqual(out.sent, true);
+    assert.strictEqual(cap.url, discordCfg.notifications.discord.webhookUrl);
+    const embed = cap.body.embeds[0];
+    assert.strictEqual(embed.title, "[AgentGuard] HIGH: .env modified");
+    assert.strictEqual(embed.color, 0xe67e22); // HIGH = orange
+    const names = embed.fields.map((f) => f.name);
+    assert.deepStrictEqual(names, ["File", "Project", "Level", "Time"]);
+    assert.strictEqual(embed.fields[0].value, ".env");
+    assert.strictEqual(embed.fields[1].value, "proj");
+  } finally {
+    restore();
+  }
+});
+
+await testAsync("sendDiscordAlert → CRITICAL=red, WARN=yellow", async () => {
+  for (const [level, color] of [["CRITICAL", 0xe74c3c], ["WARN", 0xf39c12]]) {
+    const { cap, restore } = captureFetch();
+    try {
+      await sendDiscordAlert({ file: "x", level, event: "modified", sessionId: "s" }, discordCfg);
+      assert.strictEqual(cap.body.embeds[0].color, color, `${level} color`);
+    } finally {
+      restore();
+    }
+  }
+});
+
+await testAsync("sendSlackAlert / sendDiscordAlert → skip when not configured", async () => {
+  let called = false;
+  const original = globalThis.fetch;
+  globalThis.fetch = async () => { called = true; return { ok: true, text: async () => "" }; };
+  try {
+    const s = await sendSlackAlert({ file: ".env", level: "HIGH", event: "modified", sessionId: "s" }, {});
+    const d = await sendDiscordAlert({ file: ".env", level: "HIGH", event: "modified", sessionId: "s" }, {});
+    assert.deepStrictEqual(s, { sent: false, skipped: "not-configured" });
+    assert.deepStrictEqual(d, { sent: false, skipped: "not-configured" });
+    assert.strictEqual(called, false, "fetch must not be called");
+  } finally {
+    globalThis.fetch = original;
+  }
 });
 
 // ─── sendSystemNotification ───────────────────────────────────────────────────
