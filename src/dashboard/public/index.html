@@ -94,6 +94,24 @@
     .filter-btn:hover { background: rgba(124,107,255,0.08); color: var(--text); }
     .filter-btn.active { background: var(--accent); color: #fff; font-weight: bold; }
 
+    /* ── toolbar (filters + project selector) ── */
+    .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; }
+    .toolbar .filters { margin-bottom: 0; }
+    .project-select-wrap { display: flex; align-items: center; gap: 10px; }
+    .project-select-wrap label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+    .project-select {
+      background: var(--surface);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-family: inherit;
+      font-size: 12px;
+      cursor: pointer;
+      transition: border-color 0.12s;
+    }
+    .project-select:hover { border-color: var(--accent); }
+
     /* ── project group ── */
     .project-group { margin-bottom: 28px; }
     .project-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
@@ -218,10 +236,18 @@
 <main>
   <!-- List view -->
   <div id="list-view">
-    <div class="filters" id="filters">
-      <button class="filter-btn" data-range="today">Hoy</button>
-      <button class="filter-btn active" data-range="7d">Últimos 7 días</button>
-      <button class="filter-btn" data-range="30d">Últimos 30 días</button>
+    <div class="toolbar">
+      <div class="filters" id="filters">
+        <button class="filter-btn" data-range="today">Hoy</button>
+        <button class="filter-btn active" data-range="7d">Últimos 7 días</button>
+        <button class="filter-btn" data-range="30d">Últimos 30 días</button>
+      </div>
+      <div class="project-select-wrap">
+        <label for="project-select">Project</label>
+        <select id="project-select" class="project-select">
+          <option value="all">All projects</option>
+        </select>
+      </div>
     </div>
 
     <div id="projects">
@@ -244,6 +270,8 @@
 
 <script>
   let currentRange = "7d";
+  let selectedProject = "all";   // project filter; "all" shows every project
+  let lastGroups = [];           // most recent /api/sessions project groups
 
   // ── clock ──
   function updateClock() {
@@ -475,6 +503,42 @@
     refresh();
   });
 
+  // ── project selector (TASK-009) ──
+  // Render the cached project groups, narrowed to the selected project.
+  function renderFiltered() {
+    const groups = selectedProject === "all"
+      ? lastGroups
+      : lastGroups.filter((g) => g.project === selectedProject);
+    renderProjects(groups);
+  }
+
+  // Rebuild the <select> options from /api/projects, preserving the current
+  // selection.  Skips the DOM rewrite when the option set is unchanged so the
+  // 5s poll never clobbers an open dropdown.
+  async function populateProjects() {
+    const sel = document.getElementById("project-select");
+    let data;
+    try { data = await fetchJson("/api/projects"); } catch { return; }
+    const projects = data.projects || [];
+    const wanted = ["all", ...projects.map((p) => p.project)];
+    const current = Array.from(sel.options).map((o) => o.value);
+    if (current.join(" ") === wanted.join(" ")) return;
+    sel.innerHTML = `<option value="all">All projects</option>` +
+      projects.map((p) => `<option value="${escHtml(p.project)}">${escHtml(p.project)}</option>`).join("");
+    // Restore the prior selection if it still exists; otherwise reset to all.
+    if (wanted.includes(selectedProject)) {
+      sel.value = selectedProject;
+    } else {
+      selectedProject = "all";
+      sel.value = "all";
+    }
+  }
+
+  document.getElementById("project-select").addEventListener("change", (e) => {
+    selectedProject = e.target.value;
+    renderFiltered();
+  });
+
   // ── polling ──
   async function refresh() {
     try {
@@ -488,9 +552,11 @@
       renderTimeline(openSessionId).catch(() => {});
       return;
     }
+    await populateProjects();
     try {
       const data = await fetchJson("/api/sessions?range=" + currentRange);
-      renderProjects(data.projects);
+      lastGroups = data.projects || [];
+      renderFiltered();
     } catch (err) {
       console.warn("Dashboard refresh failed:", err.message);
     }

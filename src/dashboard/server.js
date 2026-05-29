@@ -105,6 +105,26 @@ export function withinRange(ts, range, now = Date.now()) {
   return true;
 }
 
+/**
+ * Resolve the project an event belongs to, returning { project, fullPath } or
+ * null when the event has no project context.
+ *
+ * Prefers the explicit `watchPath` field (logged by the file watcher, TASK-009)
+ * because it names the exact watched root and is immune to the leading-segment
+ * ambiguity of file paths. Falls back to projectOf(file) for older entries.
+ */
+export function projectMetaOf(e, wpIndex = {}) {
+  if (e && e.watchPath) {
+    const abs = expandPath(e.watchPath) ?? e.watchPath;
+    return { project: basename(abs), fullPath: abs };
+  }
+  if (e && e.file) {
+    const proj = projectOf(e.file);
+    if (proj) return { project: proj, fullPath: wpIndex[proj] ?? null };
+  }
+  return null;
+}
+
 /** Map basename(watchPath) → absolute path, for resolving project full paths. */
 function buildWatchPathIndex(watchPaths) {
   const idx = {};
@@ -169,14 +189,14 @@ export function groupByProject(events, watchPaths) {
   for (const [id, s] of sessions) {
     const byProject = new Map();
     for (const e of s.events) {
-      if (!e.file) continue;
-      const proj = projectOf(e.file);
-      if (!proj) continue;
-      let p = byProject.get(proj);
+      const meta = projectMetaOf(e, wpIndex);
+      if (!meta) continue;
+      let p = byProject.get(meta.project);
       if (!p) {
-        p = { tsList: [], detections: 0, maxLevel: null };
-        byProject.set(proj, p);
+        p = { tsList: [], detections: 0, maxLevel: null, fullPath: meta.fullPath };
+        byProject.set(meta.project, p);
       }
+      if (!p.fullPath && meta.fullPath) p.fullPath = meta.fullPath;
       p.tsList.push(e.ts);
       if (DETECTION_EVENTS.has(e.event)) p.detections++;
       if (e.level) p.maxLevel = higherLevel(p.maxLevel, e.level);
@@ -206,7 +226,7 @@ export function groupByProject(events, watchPaths) {
       for (const [proj, p] of byProject) {
         const start = minTs(p.tsList);
         const end = maxTs(p.tsList);
-        addSession(proj, wpIndex[proj] ?? null, {
+        addSession(proj, p.fullPath ?? wpIndex[proj] ?? null, {
           sessionId: id,
           agent: s.agent,
           startTime: start,
@@ -291,6 +311,20 @@ function buildRouter() {
   // Daemon running state (for the header status pill)
   router.get("/daemon-status", (_req, res) => {
     res.json({ running: isDaemonRunning() });
+  });
+
+  // Unique projects seen across the whole audit log, for the project selector
+  // (TASK-009).  Built via groupByProject so the names/paths match the list
+  // view exactly.  Not range-filtered: the selector lists every project ever
+  // observed, independent of the active time range.
+  router.get("/projects", (_req, res) => {
+    const events = readAuditLog();
+    const watchPaths = loadConfig().watchPaths;
+    const projects = groupByProject(events, watchPaths).map((g) => ({
+      project: g.project,
+      fullPath: g.fullPath ?? null,
+    }));
+    res.json({ projects });
   });
 
   // Sessions grouped by project, filtered by ?range=today|7d|30d (default 7d).

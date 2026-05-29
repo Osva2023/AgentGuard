@@ -21,6 +21,9 @@
  *   ruleId:    correlation rule id — present when the incident originated from a
  *              fired correlation rule; omitted otherwise
  *   reason:    rule reason string — omitted when SAFE or for session events
+ *   watchPath: absolute watched root the file belongs to — present on
+ *              file-watcher events (command_intercepted / incident_detected);
+ *              lets the dashboard attribute a session to a project reliably
  *   agent:     name of the wrapped agent (e.g. "codex", "claude")
  * }
  */
@@ -107,8 +110,15 @@ export function logSnapshot(stashRef) {
   log({ event: "snapshot_created", stashRef });
 }
 
-export function logIntercepted({ command, level, reason, agent }) {
-  log({ event: "command_intercepted", command, level, reason, agent });
+export function logIntercepted({ command, level, reason, agent, watchPath }) {
+  log({
+    event: "command_intercepted",
+    command,
+    level,
+    reason,
+    ...(watchPath !== undefined && { watchPath }),
+    agent,
+  });
 }
 
 export function logApproved({ command, level, agent }) {
@@ -133,7 +143,7 @@ export function logDenied({ command, level, agent }) {
  * @param {string} [agent]
  */
 export function logDetected(incident, agent, extras = {}) {
-  const { source, level, reason, command, ruleId } = incident;
+  const { source, level, reason, command, ruleId, watchPath } = incident;
   log({
     event: "incident_detected",
     source,
@@ -141,6 +151,7 @@ export function logDetected(incident, agent, extras = {}) {
     reason,
     ...(command !== undefined && { command }),
     ...(ruleId !== undefined && { ruleId }),
+    ...(watchPath !== undefined && { watchPath }),
     ...extras,
     agent,
   });

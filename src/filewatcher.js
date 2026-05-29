@@ -200,10 +200,10 @@ export function startFileWatcher({
       });
 
       if (action === "dedup") {
-        logIntercepted({ command: `${event}: ${rel}`, level, reason: "Sensitive file modified by agent", agent });
+        logIntercepted({ command: `${event}: ${rel}`, level, reason: "Sensitive file modified by agent", agent, watchPath: cwd });
         console.error(chalk.gray(`[AgentGuard] 📝 sensitive: ${rel} (already alerted this session)`));
       } else if (action === "fire") {
-        logIntercepted({ command: `${event}: ${rel}`, level, reason: "Sensitive file modified by agent", agent });
+        logIntercepted({ command: `${event}: ${rel}`, level, reason: "Sensitive file modified by agent", agent, watchPath: cwd });
         console.error(chalk.gray(`[AgentGuard] 📝 sensitive: ${rel}`));
 
         // Gate noisy out-of-band channels (Telegram + macOS popup) on the
@@ -272,6 +272,10 @@ export function startFileWatcher({
         level: rule.level,
         reason: rule.description,
         ruleId: rule.id,
+        // The watched root this correlation fired under — lets the dashboard
+        // attribute the incident to a project the same way as sensitive-file
+        // events above.  Flows through logDetected() (deferred + audit-only).
+        watchPath: cwd,
       };
 
       // When notifications are configured AND pending.listUnresolved() has an

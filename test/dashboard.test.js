@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   projectOf,
+  projectMetaOf,
   higherLevel,
   withinRange,
   groupByProject,
@@ -14,6 +15,38 @@ test("projectOf — leading path segment is the project", () => {
   assert.strictEqual(projectOf("/leading/slash/file"), "leading");
   assert.strictEqual(projectOf(""), null);
   assert.strictEqual(projectOf(undefined), null);
+});
+
+test("projectMetaOf — prefers watchPath over file (TASK-009)", () => {
+  // Explicit watchPath wins and supplies the full path via basename.
+  assert.deepStrictEqual(
+    projectMetaOf({ watchPath: "/home/me/mainstreetaiaudit", command: "modified: .env" }),
+    { project: "mainstreetaiaudit", fullPath: "/home/me/mainstreetaiaudit" }
+  );
+  // Falls back to the leading file segment when no watchPath.
+  assert.deepStrictEqual(
+    projectMetaOf({ file: "proj-a/.env" }, { "proj-a": "/home/me/proj-a" }),
+    { project: "proj-a", fullPath: "/home/me/proj-a" }
+  );
+  // No project context at all → null.
+  assert.strictEqual(projectMetaOf({ command: "rm -rf /" }), null);
+});
+
+test("groupByProject — watchPath attributes file-less events to the right project (TASK-009)", () => {
+  // Daemon-style sensitive-file events carry no `file`, only watchPath.
+  const events = [
+    { sessionId: "d1", event: "session_start", agent: "daemon", ts: "2026-05-28T10:00:00Z" },
+    { sessionId: "d1", event: "command_intercepted", command: "modified: .env", level: "HIGH", watchPath: "/home/me/mainstreetaiaudit", ts: "2026-05-28T10:05:00Z" },
+    { sessionId: "d1", event: "command_intercepted", command: "modified: package.json", level: "WARN", watchPath: "/home/me/mainstreetaiaudit", ts: "2026-05-28T10:09:00Z" },
+  ];
+  const groups = groupByProject(events, ["/home/me/mainstreetaiaudit"]);
+  assert.strictEqual(groups.length, 1);
+  const g = groups[0];
+  assert.strictEqual(g.project, "mainstreetaiaudit");
+  assert.strictEqual(g.fullPath, "/home/me/mainstreetaiaudit");
+  assert.strictEqual(g.sessions.length, 1);
+  assert.strictEqual(g.sessions[0].sensitiveCount, 2);
+  assert.strictEqual(g.sessions[0].maxLevel, "HIGH");
 });
 
 test("higherLevel — picks the more severe level", () => {
