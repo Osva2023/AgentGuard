@@ -194,6 +194,31 @@ await testAsync(
   }
 );
 
+// 5b. sendTelegramAlert — raw `text` is sent verbatim (TASK-013 daily report)
+await testAsync(
+  "sendTelegramAlert() sends raw text verbatim when text provided",
+  async () => {
+    let capturedBody;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (_url, opts) => {
+      capturedBody = JSON.parse(opts.body);
+      return { ok: true };
+    };
+    try {
+      const config = {
+        notifications: { telegram: { enabled: true, botToken: "t", chatId: "c" } },
+      };
+      const report = "AgentGuard Report — 2026-05-29\n(today)\n\nSessions: 2";
+      await sendTelegramAlert({ text: report }, config);
+      assert.strictEqual(capturedBody.text, report, "body is the raw text");
+      assert.ok(!capturedBody.text.includes("/approve_"), "no templated footer");
+      assert.ok(!capturedBody.text.includes("🚨 AgentGuard Alert"), "no templated header");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  }
+);
+
 // 6. sendTelegramAlert — silently skips when no credentials
 await testAsync(
   "sendTelegramAlert() skips silently with no credentials",

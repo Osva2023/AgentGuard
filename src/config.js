@@ -121,6 +121,16 @@ export const DEFAULT_CONFIG = {
        */
       enabled: process.platform === "darwin",
     },
+    dailyReport: {
+      /**
+       * When true, the daemon sends `agentguard report --days=1` as a plain-text
+       * Telegram message once a day at `hour` (local time). Requires Telegram
+       * credentials (notifications.telegram.botToken/chatId or env vars).
+       */
+      enabled: false,
+      /** Local hour (0–23) to send the daily report. */
+      hour: 8,
+    },
   },
   /**
    * Directories to watch when running the daemon (bin/agentguard-daemon.js).
@@ -218,6 +228,10 @@ export function mergeConfig(defaults, overrides) {
       system: {
         ...defaults.notifications.system,
         ...(overrides.notifications?.system ?? {}),
+      },
+      dailyReport: {
+        ...defaults.notifications.dailyReport,
+        ...(overrides.notifications?.dailyReport ?? {}),
       },
     },
     watchPaths: overrides.watchPaths ?? [...defaults.watchPaths],

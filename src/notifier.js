@@ -60,18 +60,23 @@ export function isNotifierConfigured(config) {
 }
 
 /**
- * Send a Telegram alert for an intercepted risky command.
+ * Send a Telegram alert.  Two modes:
+ *   • Pass `text` to send that plain-text body verbatim (used by the daemon's
+ *     daily report — TASK-013).
+ *   • Otherwise a templated command-alert message is built from the remaining
+ *     fields (the original behaviour).
  *
  * @param {Object} params
- * @param {string} params.command    - The intercepted command string
- * @param {string} params.level      - Risk level (CRITICAL / HIGH / WARN)
- * @param {string} params.reason     - Human-readable rule reason
- * @param {string} params.sessionId  - AgentGuard session ID
- * @param {string} params.agent      - Agent name (e.g. "codex")
- * @param {object} [config]          - Merged AgentGuard config
+ * @param {string} [params.text]      - Raw message body; sent as-is when present
+ * @param {string} [params.command]   - The intercepted command string
+ * @param {string} [params.level]     - Risk level (CRITICAL / HIGH / WARN)
+ * @param {string} [params.reason]    - Human-readable rule reason
+ * @param {string} [params.sessionId] - AgentGuard session ID
+ * @param {string} [params.agent]     - Agent name (e.g. "codex")
+ * @param {object} [config]           - Merged AgentGuard config
  */
 export async function sendTelegramAlert(
-  { command, level, reason, sessionId, agent },
+  { text, command, level, reason, sessionId, agent },
   config
 ) {
   const { token, chatId, extraChatIds } = resolveCredentials(config);
@@ -85,17 +90,20 @@ export async function sendTelegramAlert(
 
   const shortSession = sessionId ? sessionId.slice(0, 8) : "unknown";
 
-  const text = [
-    "🚨 AgentGuard Alert",
-    "",
-    `Agent: ${agent}`,
-    `Session: ${shortSession}`,
-    `Risk: ${level}`,
-    `Command: ${command}`,
-    `Reason: ${reason}`,
-    "",
-    `Reply /approve_${shortSession} or /deny_${shortSession}`,
-  ].join("\n");
+  const message =
+    typeof text === "string" && text.length > 0
+      ? text
+      : [
+          "🚨 AgentGuard Alert",
+          "",
+          `Agent: ${agent}`,
+          `Session: ${shortSession}`,
+          `Risk: ${level}`,
+          `Command: ${command}`,
+          `Reason: ${reason}`,
+          "",
+          `Reply /approve_${shortSession} or /deny_${shortSession}`,
+        ].join("\n");
   const allChatIds = [chatId, ...extraChatIds].filter(Boolean);
   const url = `https://api.telegram.org/bot${token}/sendMessage`;
 
@@ -104,7 +112,7 @@ export async function sendTelegramAlert(
       const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chat_id: id, text }),
+        body: JSON.stringify({ chat_id: id, text: message }),
       });
 
       if (!res.ok) {

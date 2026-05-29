@@ -67,6 +67,25 @@ test("autoDeny override replaces default", () => {
   assert.deepStrictEqual(cfg.autoDeny, ["CRITICAL"]);
 });
 
+test("notifications.dailyReport defaults: disabled, hour 8 (TASK-013)", () => {
+  const cfg = mergeConfig(DEFAULT_CONFIG, {});
+  assert.strictEqual(cfg.notifications.dailyReport.enabled, false);
+  assert.strictEqual(cfg.notifications.dailyReport.hour, 8);
+});
+
+test("notifications.dailyReport override merges with defaults (TASK-013)", () => {
+  const cfg = mergeConfig(DEFAULT_CONFIG, {
+    notifications: { dailyReport: { enabled: true, hour: 7 } },
+  });
+  assert.strictEqual(cfg.notifications.dailyReport.enabled, true);
+  assert.strictEqual(cfg.notifications.dailyReport.hour, 7);
+  // partial override keeps the unspecified default
+  const cfg2 = mergeConfig(DEFAULT_CONFIG, {
+    notifications: { dailyReport: { enabled: true } },
+  });
+  assert.strictEqual(cfg2.notifications.dailyReport.hour, 8);
+});
+
 test("notifications.email default is disabled (TASK-012)", () => {
   const cfg = mergeConfig(DEFAULT_CONFIG, {});
   assert.strictEqual(cfg.notifications.email.enabled, false);

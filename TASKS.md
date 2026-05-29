@@ -178,7 +178,8 @@
 **Files:** `src/report.js`, `src/notifier.js`, `bin/agentguard-daemon.js`  
 **Scope:** El daemon puede enviar el reporte diario por Telegram a una hora configurable. Config: `notifications.dailyReport.enabled`, `notifications.dailyReport.hour` (default: 8am). El reporte es el mismo output de `agentguard report` pero enviado como mensaje de Telegram.  
 **Acceptance:** A las 8am llega un mensaje de Telegram con el resumen del día anterior.  
-**Status:** TODO
+**Status:** DONE  
+**Nota:** Nuevo módulo puro `src/daily-report.js` (`msUntilHour`, `stripAnsi`, `buildDailyReportMessage`) — extraído del daemon para ser testeable sin sus side-effects de arranque. `bin/agentguard-daemon.js`: si `notifications.dailyReport.enabled`, calcula ms hasta la próxima hora local (`hour`, default 8, validado 0–23), `setTimeout` para la primera vez y luego `setInterval` de 24h; al disparar arma el reporte con `runReport({days:1})`, le quita los colores chalk (ANSI) y lo manda con `sendTelegramAlert({ text })`. Timers limpiados en shutdown. `notifier.js`: `sendTelegramAlert` ahora acepta `{ text }` para enviar cuerpo plano verbatim (sin el template de approve/deny); retrocompatible. El daemon desactiva los alerts per-evento de Telegram pero conserva las credenciales, y `sendTelegramAlert` envía con credenciales (ignora `enabled`), así que el reporte diario sí sale. `config.js`: `notifications.dailyReport` en DEFAULT_CONFIG (`enabled:false`, `hour:8`) + merge. Tests: `daily-report.test.js` (timing/strip/render) + override de texto en notifier.test.js + defaults en config.test.js (agregado a la cadena `test` de package.json).
 
 ---
 
