@@ -18,6 +18,8 @@ import {
   editAlertResolved,
   sendSystemNotification,
   meetsThreshold,
+  isEmailConfigured,
+  sendEmailAlert,
 } from "../src/notifier.js";
 
 let passed = 0;
@@ -513,6 +515,119 @@ await testAsync(
     }
   }
 );
+
+// ─── Email notifier (TASK-012) ────────────────────────────────────────────────
+
+const emailConfig = (over = {}) => ({
+  notifications: {
+    email: {
+      enabled: true,
+      smtp: { host: "smtp.example.com", port: 465, user: "u@example.com", pass: "secret", secure: true },
+      to: ["a@x.com", "b@y.com"],
+      ...over,
+    },
+  },
+});
+
+test("isEmailConfigured → false when disabled", () => {
+  assert.strictEqual(isEmailConfigured(emailConfig({ enabled: false })), false);
+});
+
+test("isEmailConfigured → false when host missing", () => {
+  assert.strictEqual(isEmailConfigured(emailConfig({ smtp: { host: "" } })), false);
+});
+
+test("isEmailConfigured → false when no recipients", () => {
+  assert.strictEqual(isEmailConfigured(emailConfig({ to: [] })), false);
+  assert.strictEqual(isEmailConfigured(emailConfig({ to: "" })), false);
+});
+
+test("isEmailConfigured → true with enabled + host + recipient (string or array)", () => {
+  assert.strictEqual(isEmailConfigured(emailConfig()), true);
+  assert.strictEqual(isEmailConfigured(emailConfig({ to: "one@x.com" })), true);
+});
+
+// Build a fake nodemailer transport that captures the createTransport options
+// and the sendMail message — no real SMTP, no nodemailer dependency exercised.
+function captureTransport() {
+  const cap = {};
+  const createTransport = (opts) => {
+    cap.transportOpts = opts;
+    return {
+      sendMail: async (msg) => {
+        cap.message = msg;
+        return { messageId: "test-id" };
+      },
+    };
+  };
+  return { cap, createTransport };
+}
+
+await testAsync("sendEmailAlert → subject, recipients, body, transport opts", async () => {
+  const { cap, createTransport } = captureTransport();
+  const out = await sendEmailAlert(
+    { file: ".env", level: "HIGH", event: "modified", sessionId: "abc12345def", agent: "claude", project: "project-name" },
+    emailConfig(),
+    { createTransport }
+  );
+
+  assert.strictEqual(out.sent, true);
+  // Subject format: "[AgentGuard] HIGH: .env modified in project-name"
+  assert.strictEqual(out.subject, "[AgentGuard] HIGH: .env modified in project-name");
+  assert.strictEqual(cap.message.subject, out.subject);
+  assert.strictEqual(cap.message.to, "a@x.com, b@y.com");
+
+  // Plain-text body mirrors the Telegram fields.
+  const t = cap.message.text;
+  assert.ok(t.includes(".env"), "text has file");
+  assert.ok(t.includes("HIGH"), "text has level");
+  assert.ok(t.includes("modified"), "text has event");
+  assert.ok(t.includes("abc12345"), "text has short session");
+  assert.ok(/Time:\s+\d{4}-\d{2}-\d{2}T/.test(t), "text has ISO timestamp");
+
+  // HTML body present + informational (no rollback wording).
+  assert.ok(cap.message.html.includes("AgentGuard Alert"), "html header");
+  assert.ok(/no action/i.test(cap.message.html), "html is informational");
+
+  // Transport opts: secure defaults true, auth from smtp user/pass.
+  assert.strictEqual(cap.transportOpts.host, "smtp.example.com");
+  assert.strictEqual(cap.transportOpts.secure, true);
+  assert.deepStrictEqual(cap.transportOpts.auth, { user: "u@example.com", pass: "secret" });
+});
+
+await testAsync("sendEmailAlert → derives project from file path when not provided", async () => {
+  const { cap, createTransport } = captureTransport();
+  await sendEmailAlert(
+    { file: "beach-flag/.env.local", level: "CRITICAL", event: "created", sessionId: "s" },
+    emailConfig(),
+    { createTransport }
+  );
+  assert.strictEqual(cap.message.subject, "[AgentGuard] CRITICAL: beach-flag/.env.local created in beach-flag");
+});
+
+await testAsync("sendEmailAlert → secure:false honored (STARTTLS)", async () => {
+  const { cap, createTransport } = captureTransport();
+  await sendEmailAlert(
+    { file: ".env", level: "HIGH", event: "modified", sessionId: "s" },
+    emailConfig({ smtp: { host: "smtp.example.com", port: 587, secure: false } }),
+    { createTransport }
+  );
+  assert.strictEqual(cap.transportOpts.secure, false);
+  assert.strictEqual(cap.transportOpts.port, 587);
+  assert.strictEqual(cap.transportOpts.auth, undefined, "no auth when user/pass absent");
+});
+
+await testAsync("sendEmailAlert → skips (no transport) when not configured", async () => {
+  let created = false;
+  const createTransport = () => { created = true; return { sendMail: async () => ({}) }; };
+  const out = await sendEmailAlert(
+    { file: ".env", level: "HIGH", event: "modified", sessionId: "s" },
+    { notifications: { email: { enabled: false } } },
+    { createTransport }
+  );
+  assert.deepStrictEqual(out, { sent: false, skipped: "not-configured" });
+  assert.strictEqual(created, false, "createTransport must not be called");
+});
 
 // ─── sendSystemNotification ───────────────────────────────────────────────────
 

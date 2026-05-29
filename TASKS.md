@@ -166,7 +166,8 @@
 **Files:** `src/notifier.js`, `src/config.js`  
 **Scope:** Agregar soporte para envío de emails via SMTP (nodemailer). Configuración en config.json: `notifications.email.enabled`, `notifications.email.smtp` (host, port, user, pass), `notifications.email.to`. Mismo contenido que la alerta de Telegram pero en email. Sin botones de rollback (solo informativo).  
 **Acceptance:** Cuando `.env` se modifica, llega un email con el archivo, nivel, y timestamp.  
-**Status:** TODO
+**Status:** DONE  
+**Nota:** Canal email vía SMTP (nodemailer `^8`, import perezoso). `notifier.js`: `sendEmailAlert({file,level,event,sessionId,agent,project}, config)` + `isEmailConfigured(config)` (enabled + smtp.host + ≥1 recipient). Subject `"[AgentGuard] <LEVEL>: <file> <event> in <project>"`, cuerpo HTML dark theme + texto plano con archivo/nivel/evento/proyecto/agente/sessionId/timestamp. Sin botones (solo informativo). `config.js`: `notifications.email` en DEFAULT_CONFIG con `enabled:false`, `smtp.secure:true` (default), merge profundo de `smtp`. `filewatcher.js`: llama `sendEmailAlert()` (fire-and-forget) cuando `passesThreshold && isEmailConfigured`, independiente de Telegram (el daemon fuerza Telegram off pero email puede seguir activo). Tests en notifier.test.js (seam `createTransport`, sin SMTP real) y config.test.js. Verificado el import real de nodemailer + round-trip de `sendMail` con jsonTransport.
 
 ---
 

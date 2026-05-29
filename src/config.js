@@ -97,6 +97,23 @@ export const DEFAULT_CONFIG = {
       botToken: "",
       chatId: "",
     },
+    email: {
+      /**
+       * Informational-only SMTP email channel (no rollback buttons).
+       * Set enabled:true and provide smtp.host + at least one `to` recipient.
+       */
+      enabled: false,
+      smtp: {
+        host: "",
+        port: 465,
+        user: "",
+        pass: "",
+        /** TLS on connect (port 465). Set false for STARTTLS (e.g. port 587). */
+        secure: true,
+      },
+      /** Recipient(s): a string or an array of strings. */
+      to: "",
+    },
     system: {
       /**
        * macOS-only native notifications for HIGH/CRITICAL detections.
@@ -188,6 +205,15 @@ export function mergeConfig(defaults, overrides) {
       telegram: {
         ...defaults.notifications.telegram,
         ...(overrides.notifications?.telegram ?? {}),
+      },
+      email: {
+        ...defaults.notifications.email,
+        ...(overrides.notifications?.email ?? {}),
+        // Deep-merge smtp so partial overrides keep the unspecified defaults.
+        smtp: {
+          ...defaults.notifications.email.smtp,
+          ...(overrides.notifications?.email?.smtp ?? {}),
+        },
       },
       system: {
         ...defaults.notifications.system,

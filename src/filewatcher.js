@@ -27,7 +27,9 @@ import { restoreSnapshot } from "./snapshot.js";
 import { isSensitive } from "./sensitive.js";
 import {
   isNotifierConfigured,
+  isEmailConfigured,
   meetsThreshold,
+  sendEmailAlert,
   sendFileChangeAlert,
   sendSystemNotification,
 } from "./notifier.js";
@@ -234,6 +236,17 @@ export function startFileWatcher({
               pending.updateMessageText(changeId, text);
             })
             .catch(() => {});
+        }
+
+        // Email alert (informational, no rollback) — fire-and-forget.  Gated
+        // on passesThreshold and isEmailConfigured, independent of Telegram so
+        // either channel can be enabled on its own (e.g. the daemon forces
+        // Telegram off but email may still be on).
+        if (passesThreshold && isEmailConfigured(config)) {
+          sendEmailAlert(
+            { file: rel, level, event, sessionId, agent, project: path.basename(cwd) },
+            config
+          ).catch(() => {});
         }
 
         // macOS native notification — fire-and-forget.  Threshold gate is

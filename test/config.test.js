@@ -67,5 +67,24 @@ test("autoDeny override replaces default", () => {
   assert.deepStrictEqual(cfg.autoDeny, ["CRITICAL"]);
 });
 
+test("notifications.email default is disabled (TASK-012)", () => {
+  const cfg = mergeConfig(DEFAULT_CONFIG, {});
+  assert.strictEqual(cfg.notifications.email.enabled, false);
+  assert.strictEqual(cfg.notifications.email.smtp.secure, true);
+});
+
+test("notifications.email partial smtp override keeps other smtp defaults (TASK-012)", () => {
+  const cfg = mergeConfig(DEFAULT_CONFIG, {
+    notifications: { email: { enabled: true, smtp: { host: "smtp.x.com", secure: false }, to: "me@x.com" } },
+  });
+  assert.strictEqual(cfg.notifications.email.enabled, true);
+  assert.strictEqual(cfg.notifications.email.smtp.host, "smtp.x.com");
+  assert.strictEqual(cfg.notifications.email.smtp.secure, false); // overridden
+  assert.strictEqual(cfg.notifications.email.smtp.port, 465);     // default kept
+  assert.strictEqual(cfg.notifications.email.to, "me@x.com");
+  // Telegram defaults untouched by an email-only override.
+  assert.strictEqual(cfg.notifications.telegram.enabled, false);
+});
+
 console.log(`\n${failed === 0 ? "All tests passed." : `${failed} test(s) FAILED.`}`);
 if (failed > 0) process.exit(1);
