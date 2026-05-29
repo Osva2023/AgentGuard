@@ -8,24 +8,36 @@
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      --bg:       #0f0f0f;
-      --surface:  #1a1a1a;
-      --surface2: #141414;
-      --border:   #2a2a2a;
-      --accent:   #7c6bff;
-      --text:     #e0e0e0;
-      --muted:    #888;
-      --critical: #ff4f4f;
-      --high:     #ff8c42;
-      --warn:     #ffd166;
-      --green:    #06d6a0;
-      --red:      #ff4f4f;
+      /* OzForce Labs palette */
+      --bg-primary:    #0a0f1a;
+      --bg-secondary:  #0d1527;
+      --bg-card:       #111827;
+      --accent-cyan:   #00e5ff;
+      --accent-blue:   #0066ff;
+      --text-primary:  #ffffff;
+      --text-secondary:#94a3b8;
+      --border:        rgba(0, 229, 255, 0.12);
+      --border-hover:  rgba(0, 229, 255, 0.3);
+
+      /* alert levels (preserved) */
+      --critical: #e74c3c;
+      --high:     #e67e22;
+      --warn:     #f39c12;
+
+      /* status */
+      --green: #2ecc71;
+      --red:   #e74c3c;
+
+      /* effects + fonts */
+      --glow: 0 0 14px rgba(0, 229, 255, 0.22);
+      --mono: "SF Mono", "JetBrains Mono", "Fira Code", ui-monospace, "Consolas", monospace;
+      --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     }
 
     body {
-      background: var(--bg);
-      color: var(--text);
-      font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      font-family: var(--sans);
       font-size: 13px;
       line-height: 1.5;
       min-height: 100vh;
@@ -38,23 +50,18 @@
       justify-content: space-between;
       padding: 16px 24px;
       border-bottom: 1px solid var(--border);
-      background: var(--surface);
+      background: var(--bg-primary);
       position: sticky;
       top: 0;
       z-index: 10;
     }
-    .logo {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      font-size: 16px;
-      font-weight: bold;
-      color: var(--accent);
-      letter-spacing: 0.04em;
-    }
-    .logo-shield { font-size: 20px; }
+    .logo { display: flex; align-items: baseline; gap: 9px; }
+    .logo-shield { font-size: 20px; align-self: center; }
+    .logo-text { font-size: 17px; font-weight: 700; color: var(--text-primary); letter-spacing: 0.02em; }
+    .logo-accent { color: var(--accent-cyan); }
+    .logo-tag { font-size: 11px; color: var(--text-secondary); letter-spacing: 0.04em; }
     .header-right { display: flex; align-items: center; gap: 16px; }
-    .clock { color: var(--muted); font-size: 12px; letter-spacing: 0.08em; }
+    .clock { color: var(--text-secondary); font-size: 12px; letter-spacing: 0.08em; font-family: var(--mono); }
 
     /* ── daemon status pill ── */
     .pill {
@@ -63,14 +70,15 @@
       gap: 7px;
       padding: 4px 12px;
       border-radius: 999px;
-      background: rgba(255,255,255,0.05);
+      background: rgba(0, 229, 255, 0.05);
+      border: 1px solid var(--border);
       font-size: 12px;
       letter-spacing: 0.05em;
     }
-    .pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
-    .pill.running { color: var(--green); }
+    .pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-secondary); }
+    .pill.running { color: var(--green); border-color: rgba(46, 204, 113, 0.3); }
     .pill.running .dot { background: var(--green); animation: pulse 2s ease-in-out infinite; }
-    .pill.stopped { color: var(--red); }
+    .pill.stopped { color: var(--red); border-color: rgba(231, 76, 60, 0.3); }
     .pill.stopped .dot { background: var(--red); }
     @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
 
@@ -80,44 +88,45 @@
     /* ── filters ── */
     .filters { display: flex; gap: 0; margin-bottom: 24px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; width: fit-content; }
     .filter-btn {
-      background: var(--surface);
-      color: var(--muted);
+      background: var(--bg-secondary);
+      color: var(--text-secondary);
       border: none;
       border-right: 1px solid var(--border);
       padding: 8px 18px;
       font-family: inherit;
       font-size: 12px;
       cursor: pointer;
-      transition: background 0.12s, color 0.12s;
+      transition: background 0.15s, color 0.15s, box-shadow 0.15s;
     }
     .filter-btn:last-child { border-right: none; }
-    .filter-btn:hover { background: rgba(124,107,255,0.08); color: var(--text); }
-    .filter-btn.active { background: var(--accent); color: #fff; font-weight: bold; }
+    .filter-btn:hover { background: rgba(0, 229, 255, 0.08); color: var(--text-primary); box-shadow: inset var(--glow); }
+    .filter-btn.active { background: var(--accent-cyan); color: #0a0f1a; font-weight: 700; }
 
     /* ── toolbar (filters + project selector) ── */
     .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; }
     .toolbar .filters { margin-bottom: 0; }
     .project-select-wrap { display: flex; align-items: center; gap: 10px; }
-    .project-select-wrap label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+    .project-select-wrap label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-secondary); }
     .project-select {
-      background: var(--surface);
-      color: var(--text);
+      background: var(--bg-secondary);
+      color: var(--text-primary);
       border: 1px solid var(--border);
       border-radius: 8px;
       padding: 8px 12px;
       font-family: inherit;
       font-size: 12px;
       cursor: pointer;
-      transition: border-color 0.12s;
+      transition: border-color 0.15s, box-shadow 0.15s;
     }
-    .project-select:hover { border-color: var(--accent); }
+    .project-select:hover { border-color: var(--border-hover); box-shadow: var(--glow); }
+    .project-select:focus { outline: none; border-color: var(--accent-cyan); box-shadow: var(--glow); }
 
     /* ── project group ── */
     .project-group { margin-bottom: 28px; }
     .project-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
-    .project-name { font-size: 15px; font-weight: bold; color: var(--text); }
-    .project-path { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .project-count { margin-left: auto; font-size: 11px; color: var(--muted); flex-shrink: 0; }
+    .project-name { font-size: 15px; font-weight: 700; color: var(--text-primary); }
+    .project-path { font-size: 11px; color: var(--text-secondary); font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .project-count { margin-left: auto; font-size: 11px; color: var(--text-secondary); flex-shrink: 0; }
 
     /* ── session card ── */
     .session-card {
@@ -125,58 +134,60 @@
       grid-template-columns: 1fr 130px 150px 90px;
       align-items: center;
       gap: 12px;
-      background: var(--surface);
+      background: var(--bg-secondary);
       border: 1px solid var(--border);
       border-radius: 8px;
       padding: 12px 16px;
       margin-bottom: 8px;
       cursor: pointer;
-      transition: background 0.12s, border-color 0.12s;
+      transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
     }
-    .session-card:hover { background: rgba(124,107,255,0.07); border-color: var(--accent); }
+    .session-card:hover { background: var(--bg-card); border-color: var(--border-hover); box-shadow: var(--glow); }
     .session-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-    .session-start { color: var(--text); }
-    .session-sub { color: var(--muted); font-size: 11px; }
-    .session-id { color: var(--accent); }
+    .session-start { color: var(--text-primary); }
+    .session-sub { color: var(--text-secondary); font-size: 11px; }
+    .session-id { color: var(--accent-cyan); font-family: var(--mono); }
     .col { display: flex; flex-direction: column; gap: 2px; }
-    .col-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
-    .col-value { color: var(--text); }
+    .col-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-secondary); }
+    .col-value { color: var(--text-primary); }
     .col-value.sensitive { color: var(--warn); }
     .badge-cell { text-align: right; }
 
+    /* ── level badges (clean pill style) ── */
     .level-badge {
       display: inline-block;
-      padding: 2px 8px;
-      border-radius: 4px;
+      padding: 3px 10px;
+      border-radius: 999px;
       font-size: 10px;
-      font-weight: bold;
-      letter-spacing: 0.04em;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      border: 1px solid transparent;
     }
-    .level-CRITICAL { background: var(--critical); color: #fff; }
-    .level-HIGH     { background: var(--high); color: #111; }
-    .level-WARN     { background: var(--warn); color: #111; }
-    .level-none     { color: var(--muted); font-size: 11px; }
+    .level-CRITICAL { background: rgba(231, 76, 60, 0.15); color: var(--critical); border-color: rgba(231, 76, 60, 0.4); }
+    .level-HIGH     { background: rgba(230, 126, 34, 0.15); color: var(--high); border-color: rgba(230, 126, 34, 0.4); }
+    .level-WARN     { background: rgba(243, 156, 18, 0.15); color: var(--warn); border-color: rgba(243, 156, 18, 0.4); }
+    .level-none     { color: var(--text-secondary); font-size: 11px; }
 
     /* ── session detail / timeline ── */
     .detail-head { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
     .back-btn {
-      background: var(--surface);
-      color: var(--text);
+      background: var(--bg-secondary);
+      color: var(--text-primary);
       border: 1px solid var(--border);
       border-radius: 8px;
       padding: 8px 14px;
       font-family: inherit;
       font-size: 12px;
       cursor: pointer;
-      transition: background 0.12s, border-color 0.12s;
+      transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
     }
-    .back-btn:hover { background: rgba(124,107,255,0.08); border-color: var(--accent); }
+    .back-btn:hover { background: rgba(0, 229, 255, 0.08); border-color: var(--border-hover); box-shadow: var(--glow); }
     .detail-title { display: flex; flex-direction: column; gap: 2px; }
-    .detail-title .main { font-size: 15px; font-weight: bold; }
-    .detail-title .sub { color: var(--muted); font-size: 11px; }
+    .detail-title .main { font-size: 15px; font-weight: 700; color: var(--text-primary); }
+    .detail-title .sub { color: var(--text-secondary); font-size: 11px; font-family: var(--mono); }
 
     .timeline {
-      background: var(--surface);
+      background: var(--bg-secondary);
       border: 1px solid var(--border);
       border-radius: 8px;
       overflow: hidden;
@@ -189,30 +200,30 @@
       align-items: baseline;
     }
     .tl-header {
-      color: var(--muted);
+      color: var(--text-secondary);
       font-size: 10px;
       text-transform: uppercase;
       letter-spacing: 0.08em;
       border-bottom: 1px solid var(--border);
     }
-    .tl-row { border-bottom: 1px solid #1f1f1f; font-size: 12px; }
+    .tl-row { border-bottom: 1px solid var(--border); font-size: 12px; }
     .tl-row:last-child { border-bottom: none; }
-    .tl-row:hover { background: rgba(124,107,255,0.05); }
-    .tl-time { color: var(--muted); }
-    .tl-type { color: var(--text); }
-    .tl-type.sensitive  { color: var(--accent); }
-    .tl-type.correlation { color: #4fc3f7; }
-    .tl-detail { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tl-row:hover { background: rgba(0, 229, 255, 0.05); }
+    .tl-time { color: var(--text-secondary); font-family: var(--mono); }
+    .tl-type { color: var(--text-primary); }
+    .tl-type.sensitive  { color: var(--accent-cyan); }
+    .tl-type.correlation { color: var(--accent-blue); }
+    .tl-detail { color: var(--text-secondary); font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .tl-action { font-size: 11px; }
     .tl-action.kept, .tl-action.approved { color: var(--green); }
     .tl-action.denied { color: var(--red); }
-    .tl-action.rolled { color: #4fc3f7; }
-    .tl-action.none { color: var(--muted); }
+    .tl-action.rolled { color: var(--accent-cyan); }
+    .tl-action.none { color: var(--text-secondary); }
 
     /* ── most touched sensitive files (TASK-010) ── */
     .top-files-section { margin-top: 36px; }
-    .section-title { font-size: 15px; font-weight: bold; color: var(--text); margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
-    .top-files { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+    .section-title { font-size: 15px; font-weight: 700; color: var(--text-primary); margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+    .top-files { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
     .tf-header, .tf-row {
       display: grid;
       grid-template-columns: 1fr 110px 110px 160px;
@@ -221,28 +232,43 @@
       align-items: baseline;
     }
     .tf-header {
-      color: var(--muted);
+      color: var(--text-secondary);
       font-size: 10px;
       text-transform: uppercase;
       letter-spacing: 0.08em;
       border-bottom: 1px solid var(--border);
     }
-    .tf-row { border-bottom: 1px solid #1f1f1f; font-size: 12px; }
-    .tf-row:last-child { border-bottom: none; }
-    .tf-row:hover { background: rgba(124,107,255,0.05); }
-    .tf-file { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .tf-count { color: var(--accent); font-weight: bold; }
-    .tf-last { color: var(--muted); }
-    .tf-empty { padding: 20px; text-align: center; color: var(--muted); }
+    .tf-row { font-size: 12px; transition: background 0.15s; }
+    /* zebra striping: odd rows = bg-secondary (container), even = bg-card */
+    .tf-row:nth-child(2n) { background: var(--bg-card); }
+    .tf-row:hover { background: rgba(0, 229, 255, 0.06); }
+    .tf-file { color: var(--text-primary); font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tf-count { color: var(--accent-cyan); font-weight: 700; }
+    .tf-last { color: var(--text-secondary); }
+    .tf-empty { padding: 20px; text-align: center; color: var(--text-secondary); }
 
     .hidden { display: none; }
 
     /* ── empty state ── */
-    .empty-state { padding: 48px; text-align: center; color: var(--muted); }
+    .empty-state { padding: 48px; text-align: center; color: var(--text-secondary); }
     .empty-state .big { font-size: 32px; margin-bottom: 12px; }
+    .empty-state code { font-family: var(--mono); color: var(--accent-cyan); }
 
-    .refresh-label { color: var(--muted); font-size: 11px; }
-    .refresh-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); display: inline-block; margin-right: 6px; animation: pulse 2s ease-in-out infinite; }
+    .refresh-label { color: var(--text-secondary); font-size: 11px; }
+    .refresh-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent-cyan); display: inline-block; margin-right: 6px; animation: pulse 2s ease-in-out infinite; }
+
+    /* ── footer ── */
+    footer {
+      text-align: center;
+      padding: 24px;
+      margin-top: 40px;
+      border-top: 1px solid var(--border);
+      color: var(--text-secondary);
+      font-size: 11px;
+      letter-spacing: 0.03em;
+    }
+    footer a { color: var(--accent-cyan); text-decoration: none; transition: text-shadow 0.15s; }
+    footer a:hover { text-shadow: var(--glow); text-decoration: underline; }
   </style>
 </head>
 <body>
@@ -250,7 +276,8 @@
 <header>
   <div class="logo">
     <span class="logo-shield">🛡</span>
-    AgentGuard Dashboard
+    <span class="logo-text">Agent<span class="logo-accent">Guard</span></span>
+    <span class="logo-tag">by OzForce Labs</span>
   </div>
   <div class="header-right">
     <span id="daemon-pill" class="pill"><span class="dot"></span><span id="daemon-text">checking…</span></span>
@@ -301,6 +328,10 @@
     <div class="timeline" id="timeline"></div>
   </div>
 </main>
+
+<footer>
+  AgentGuard by OzForce Labs · <a href="https://github.com/Osva2023/AgentGuard" target="_blank" rel="noopener">github.com/Osva2023/AgentGuard</a>
+</footer>
 
 <script>
   let currentRange = "7d";

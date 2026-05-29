@@ -149,7 +149,8 @@
 **Files:** `src/dashboard/public/index.html`  
 **Scope:** Rediseñar el dashboard con dark theme consistente con la tray app. Sin frameworks externos — HTML/CSS/JS puro. Color coding para niveles: CRITICAL=rojo, HIGH=naranja, WARN=amarillo. Responsive básico.  
 **Acceptance:** El dashboard se ve profesional y es usable en pantallas de laptop y monitor.  
-**Status:** TODO
+**Status:** DONE  
+**Nota:** Rediseño con la identidad visual de OzForce Labs (solo `src/dashboard/public/index.html` — server intacto). Paleta cyan/azul sobre fondo `#0a0f1a`/`#0d1527`; logo "Agent**Guard**" con "Guard" en cyan + tagline "by OzForce Labs"; filtros con activo cyan/texto negro; cards con glow cyan al hover; badges de nivel como pills limpios (colores de alerta preservados); tabla "Most touched" con zebra striping `#0d1527`/`#111827`; footer "AgentGuard by OzForce Labs · github.com/Osva2023/AgentGuard"; `system-ui` para texto y monospace para IDs/paths. Lógica JS y IDs/clases intactos. Verificado en vivo (HTTP 200, sin tokens de la paleta anterior).
 
 ---
 
