@@ -338,7 +338,9 @@ servidor central en Railway.
 **Prioridad:** Alta  
 **Scope:** Cuando el agente hace git checkout de una rama a otra, Ilum dispara CRITICAL "Mass file deletion" por los archivos que git elimina del working tree. Son eliminaciones legítimas de git, no del agente.  
 **Fix:** Detectar operaciones git checkout/switch en el PTY interceptor y suprimir temporalmente la regla mass-delete durante esos eventos, o agregar contexto git al correlation engine para distinguir.  
-**Acceptance:** git checkout entre ramas no dispara mass-delete CRITICAL.
+**Acceptance:** git checkout entre ramas no dispara mass-delete CRITICAL.  
+**Status:** DONE  
+**Nota:** `correlation-rules.js`: nuevo `isGitWorktreeOp(cmd)` (regex `git … checkout|switch|restore|reset|rebase|merge|pull|stash`, acotado a un solo segmento de comando con `[^|;&]*` para no cruzar pipes/`&&`/`;`) + dos señales de supresión que apaga la regla `mass-delete`: (1) `hasRecentGitWorktreeOp(bus, 10s)` — escaneo puro del bus, cubre comandos git vistos por el decoder de salida del PTY; (2) flag temporal `markGitOperation()`/`isGitOperationActive()` (TTL 5s, "suppress until" process-local, sin I/O) — cubre el caso de Claude Code/Codex, cuyos comandos van por el shell wrapper/node-hook y **nunca** llegan al bus. Se marca el flag desde `shell-daemon.js` (antes del early-return de comandos SAFE, porque `git checkout` clasifica SAFE) y desde `pty-interceptor.js` (junto al `bus.push`). `mass-delete.match()` retorna `false` si cualquiera de las dos señales está activa. Sigue disparando para `rm -rf`, `git commit`, o cuando el checkout ya caducó de la ventana. Tests nuevos en `correlator.test.js` (16 casos: regex, flag/TTL, supresión por flag y por bus, y regresiones que confirman que un mass-delete real sí dispara). `npm test` verde.
 
 ---
 

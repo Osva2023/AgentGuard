@@ -49,6 +49,7 @@ import { execSync } from "child_process";
 import { decodeCommand } from "./decoder.js";
 import { bus } from "./event-bus.js";
 import { evaluate } from "./correlator.js";
+import { isGitWorktreeOp, markGitOperation } from "./correlation-rules.js";
 import { filterFired, suppression } from "./suppression.js";
 import { startShellDaemon } from "./shell-daemon.js";
 
@@ -410,6 +411,11 @@ export async function runPtyInterceptor({
         const event = decodeCommand(line.replace(ANSI_RE, "").trim());
         if (event) {
           bus.push(event);
+          // TASK-027: a git worktree op (checkout/switch/pull/merge/…) about to
+          // reshape the tree — flag it so the file deletions git performs don't
+          // trip mass-delete. Set alongside the bus push so both correlator
+          // suppression signals are armed before evaluate() runs.
+          if (isGitWorktreeOp(event.command)) markGitOperation();
           const fired = filterFired(evaluate(bus), suppression);
           for (const rule of fired) {
             console.error(
