@@ -4,30 +4,44 @@
  * Creates a git stash before the agent session starts so the user can
  * roll back any changes the agent makes.  Silently no-ops when the current
  * directory is not a git repository.
+ *
+ * The session-start stash blocks the main process, so it is bounded by a short
+ * timeout (SNAPSHOT_TIMEOUT_MS): on a large or slow repo `git stash` could take
+ * several seconds and make AgentGuard appear to hang on session start/close
+ * (TASK-025).  If git can't finish within the budget we abandon the snapshot
+ * and let the session proceed rather than block — rollback is degraded for that
+ * session, but the process is never held hostage.
  */
 
-import { execSync, spawnSync } from "child_process";
+import { spawnSync } from "child_process";
 import fs from "fs";
 import path from "path";
 import { logSnapshot, AGENTGUARD_DIR, sessionId } from "./logger.js";
 import { isSensitive } from "./sensitive.js";
 
 /**
- * Check whether the current working directory is inside a git repository.
+ * Default time budget (ms) for the blocking session-start `git stash`.
+ * Kept small so a slow stash never stalls session start/close for long.
+ */
+export const SNAPSHOT_TIMEOUT_MS = 2000;
+
+/**
+ * Check whether `cwd` is inside a git repository.
  *
+ * `spawnFn` is an injectable seam (defaults to spawnSync) so tests can drive
+ * the snapshot logic without a real git repository.
+ *
+ * @param {string} [cwd]
+ * @param {typeof spawnSync} [spawnFn]
  * @returns {boolean}
  */
-function isGitRepo(cwd) {
-  try {
-    execSync("git rev-parse --is-inside-work-tree", {
-      cwd,
-      stdio: "ignore",
-      timeout: 5000,
-    });
-    return true;
-  } catch {
-    return false;
-  }
+function isGitRepo(cwd, spawnFn = spawnSync) {
+  const result = spawnFn("git", ["rev-parse", "--is-inside-work-tree"], {
+    cwd,
+    stdio: "ignore",
+    timeout: 5000,
+  });
+  return !result.error && result.status === 0;
 }
 
 /**
@@ -116,10 +130,24 @@ function backupSensitiveFiles(cwd) {
  * per-session backup directory, since `git stash -u` skips gitignored
  * files and those are the ones most worth protecting.
  *
- * @returns {{ created: boolean, stashRef: string|null, sensitiveBackupDir: string|null, message: string }}
+ * The `git stash` is bounded by `timeoutMs` (default SNAPSHOT_TIMEOUT_MS).  It
+ * runs synchronously because the snapshot must capture the pre-session tree
+ * before the agent starts touching files — but if git can't finish within the
+ * budget we abandon it (created:false, timedOut:true) so the session is never
+ * blocked for more than ~2s (TASK-025).
+ *
+ * @param {Object} [opts]
+ * @param {string}          [opts.cwd]        Working directory (defaults to process.cwd()).
+ * @param {number}          [opts.timeoutMs]  Max ms to wait for `git stash`.
+ * @param {typeof spawnSync}[opts.spawnFn]    Injectable spawn seam for tests.
+ * @returns {{ created: boolean, stashRef: string|null, sensitiveBackupDir: string|null, message: string, timedOut?: boolean }}
  */
-export function createSnapshot() {
-  if (!isGitRepo()) {
+export function createSnapshot({
+  cwd = process.cwd(),
+  timeoutMs = SNAPSHOT_TIMEOUT_MS,
+  spawnFn = spawnSync,
+} = {}) {
+  if (!isGitRepo(cwd, spawnFn)) {
     return {
       created: false,
       stashRef: null,
@@ -128,22 +156,31 @@ export function createSnapshot() {
     };
   }
 
-  const backup = backupSensitiveFiles(process.cwd());
+  const backup = backupSensitiveFiles(cwd);
 
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   const stashMsg = `agentguard-snapshot-${timestamp}`;
 
-  const result = spawnSync("git", ["stash", "-u", "-m", stashMsg], {
+  const result = spawnFn("git", ["stash", "-u", "-m", stashMsg], {
+    cwd,
     encoding: "utf8",
-    timeout: 15_000,
+    timeout: timeoutMs,
   });
 
   if (result.error) {
+    // spawnSync surfaces a timeout as error.code "ETIMEDOUT" and kills git with
+    // SIGTERM.  Treat that as a non-fatal "snapshot skipped" so the caller keeps
+    // going instead of hanging — the whole point of the budget (TASK-025).
+    const timedOut =
+      result.error.code === "ETIMEDOUT" || result.signal === "SIGTERM";
     return {
       created: false,
       stashRef: null,
       sensitiveBackupDir: backup.dir,
-      message: `Snapshot failed: ${result.error.message}`,
+      timedOut: timedOut || undefined,
+      message: timedOut
+        ? `Snapshot skipped — git stash exceeded ${timeoutMs}ms; continuing without blocking.`
+        : `Snapshot failed: ${result.error.message}`,
     };
   }
 
