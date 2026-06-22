@@ -301,6 +301,48 @@ Electron is declared as an `optionalDependency` of the root package, so global i
 
 ---
 
+## Team Plan
+
+Ilum's team features are designed around a central workspace — one place where all machines in a team report, and one dashboard where anyone with access can see what every agent did.
+
+**How it works:**
+
+- Each developer installs ozilum and configures a team token
+- The daemon forwards every logged event to the team workspace, tagged with `os.hostname()`
+- A shared dashboard shows combined activity from all machines: machine selector, time-range filter, event table, live counters, auto-refresh every 10 seconds
+- Access is token-gated — only people with the token see the team's activity
+
+**Configuration:**
+
+Add to `~/.agentguard/config.json`:
+
+```json
+{
+  "team": {
+    "serverUrl": "https://your-workspace.ilum.dev",
+    "token": "your-team-token"
+  }
+}
+```
+
+`agentguard daemon status` shows:
+
+```
+Team sync: ✓ connected to https://your-workspace.ilum.dev
+```
+
+**Ilum Cloud — coming soon**
+
+A hosted workspace for teams — no server to deploy or maintain. Each team gets an isolated workspace, a shared dashboard, and a token to distribute. Built for small teams who want visibility into their AI agents without managing infrastructure.
+
+If you're interested in early access: [github.com/Osva2023/Ilum/discussions](https://github.com/Osva2023/Ilum/discussions)
+
+**Self-hosted**
+
+The server code lives in `agentguard-server/` — an Express + SQLite app you can deploy on Railway or any Node.js host if you prefer to run your own infrastructure.
+
+---
+
 ## Audit-only mode
 
 When you want to observe behavior before enabling enforcement — or if interactive prompts are too disruptive for your current workflow — run in audit-only mode:
