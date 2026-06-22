@@ -170,8 +170,8 @@ The CLI is published on npm as [`ilum`](https://www.npmjs.com/package/ilum). Aft
 To work from source (track `main`, hack on rules, etc.):
 
 ```bash
-git clone https://github.com/Osva2023/agentguard
-cd agentguard
+git clone https://github.com/Osva2023/Ilum
+cd Ilum
 npm install
 npm link
 ```
@@ -293,7 +293,7 @@ cd tray && npm install
 - **Right-click** the icon → minimal context menu with daemon status and Quit
 - The popup hides on blur (like a native menu bar item) and refreshes automatically when the daemon's state changes
 
-Electron is declared as an `optionalDependency` of the root package, so global installs of `agentguard-dev` do not pull it in unless the user opts into the tray.
+Electron is declared as an `optionalDependency` of the root package, so global installs of `ilum` do not pull it in unless the user opts into the tray.
 
 ---
 
@@ -530,7 +530,7 @@ Run in an environment with no interactive terminal. CRITICAL incidents should te
 - Agents or workflows where AgentGuard didn't work at all
 - Friction: prompts that interrupted work in an annoying way
 
-**Where to report:** Open an issue at [github.com/Osva2023/agentguard](https://github.com/Osva2023/agentguard/issues). A short description of what you did and what happened is enough.
+**Where to report:** Open an issue at [github.com/Osva2023/Ilum](https://github.com/Osva2023/Ilum/issues). A short description of what you did and what happened is enough.
 
 ---
 

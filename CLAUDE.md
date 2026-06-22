@@ -53,7 +53,7 @@ nuevo, añádelo a la cadena del script `test` en `package.json` (la lista es ex
   git commit -m "tipo(scope): descripción"
   git push origin dev
   ```
-- Hay dos remotes configurados (`morphius101` y `Osva2023`); `git push origin dev` empuja a ambos.
+- El único remote oficial es `origin` → `git@github.com:Osva2023/Ilum.git`. `git push origin dev` empuja ahí.
 
 ## Archivos que NO tocar sin revisión explícita
 

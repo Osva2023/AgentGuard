@@ -20,8 +20,8 @@ so you can respond even when you're away from the terminal.
 
 ```bash
 # 1. Clone the repo (you need to be added as a collaborator first)
-git clone https://github.com/morphius101/agentguard.git
-cd agentguard
+git clone https://github.com/Osva2023/Ilum.git
+cd Ilum
 
 # 2. Run the installer
 bash install.sh
