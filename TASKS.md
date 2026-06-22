@@ -333,6 +333,17 @@ servidor central en Railway.
 
 ---
 
+### TASK-026 — Telegram: botones "Keep All" / "Skip All" (batch)
+**Epic:** Notificaciones / UX  
+**Prioridad:** Media  
+**Files:** `src/notifier.js`, `src/telegram-listener.js`, `src/filewatcher.js`  
+**Scope:** En sesiones largas con 10+ eventos, aprobar Keep/Rollback uno por uno es tedioso. Cuando hay más de 1 evento pendiente, agregar al mensaje de Telegram dos botones extra: "✅ Keep All" y "⏭ Skip All". Keep All aprueba todos los pendientes de la sesión; Skip All cierra todas las alertas sin rollback. Los botones individuales siguen igual. Mostrar el conteo: "3 pending events — approve individually or batch".  
+**Acceptance:** Keep All aprueba todos; Skip All cierra todos sin rollback; los individuales siguen funcionando; los batch buttons solo aparecen con más de 1 pendiente.  
+**Status:** DONE  
+**Nota:** `notifier.js` → `sendFileChangeAlert` ahora acepta `pendingCount` (default 1); cuando `> 1` (y hay `sessionId`) agrega una segunda fila de botones `ka:<sessionId>` / `sa:<sessionId>` y cambia la línea de instrucción por "N pending events — approve individually or batch". Nuevo outcome `skipped` en `editAlertResolved`/`resolutionLineFor` ("⏭ Skipped — no action taken"). `telegram-listener.js` → `handleCallbackQuery` parsea `ka`/`sa` además de `k`/`r` y delega en `handleBatchAction`, que filtra `pending.listUnresolved()` por `sessionId`, marca todos resueltos, loguea `telegram_keep`/`telegram_skip` con `batch:true` por archivo, limpia los botones de cada alerta (editAllRefs) y responde "Kept N"/"Skipped N"; Skip All **nunca** llama a restoreFile (sin rollback). La autorización aplica igual a las acciones batch; "Nothing pending" si no hay entradas. `filewatcher.js` pasa `pendingCount: pending.listUnresolved().length` (contado tras `register`, incluye la entrada nueva). Tests: +6 en `telegram-listener.test.js` (Keep All, Skip All sin rollback, scope por sesión, nothing-pending, unauthorized, individual sigue OK) y +2 en `notifier.test.js` (batch buttons presentes con `pendingCount>1`, ausentes por default). `npm test` verde (notifier 42, listener 18).
+
+---
+
 ### TASK-027 — BUG: Falso positivo CRITICAL en git checkout entre ramas
 **Epic:** Estabilización  
 **Prioridad:** Alta  

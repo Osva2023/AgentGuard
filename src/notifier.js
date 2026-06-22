@@ -150,17 +150,27 @@ export async function sendTelegramAlert(
  * @param {string} params.sessionId
  * @param {string} params.changeId    Opaque id from pending-changes
  * @param {string} params.agent
+ * @param {number} [params.pendingCount=1]  Unresolved alerts in this session at
+ *                                          send time.  When > 1 the message gains
+ *                                          "Keep All" / "Skip All" batch buttons
+ *                                          and a pending-count line (TASK-026).
  * @param {object} [config]
  * @returns {Promise<{ text: string, refs: Array<{chatId:string, messageId:number}> }>}
  */
 export async function sendFileChangeAlert(
-  { file, level, event, sessionId, changeId, agent },
+  { file, level, event, sessionId, changeId, agent, pendingCount = 1 },
   config
 ) {
   if (!isNotifierConfigured(config)) return { text: "", refs: [] };
 
   const { token, chatId, extraChatIds } = resolveCredentials(config);
   const shortSession = sessionId ? sessionId.slice(0, 8) : "unknown";
+
+  // Batch controls (TASK-026): only when more than one change awaits a decision.
+  const batch = pendingCount > 1 && !!sessionId;
+  const actionLine = batch
+    ? `${pendingCount} pending events — approve individually or batch`
+    : "Tap a button below to keep or rollback this change.";
 
   const text = [
     "📁 AgentGuard File Alert",
@@ -171,17 +181,24 @@ export async function sendFileChangeAlert(
     `File: ${file}`,
     `Event: ${event}`,
     "",
-    "Tap a button below to keep or rollback this change.",
+    actionLine,
   ].join("\n");
 
-  const reply_markup = {
-    inline_keyboard: [
-      [
-        { text: "✅ Keep",     callback_data: `k:${changeId}` },
-        { text: "↩️ Rollback", callback_data: `r:${changeId}` },
-      ],
+  const inline_keyboard = [
+    [
+      { text: "✅ Keep",     callback_data: `k:${changeId}` },
+      { text: "↩️ Rollback", callback_data: `r:${changeId}` },
     ],
-  };
+  ];
+  if (batch) {
+    // Scoped to the session id so a tap only resolves THIS session's pending
+    // alerts.  Parsed back out by handleCallbackQuery in telegram-listener.js.
+    inline_keyboard.push([
+      { text: "✅ Keep All", callback_data: `ka:${sessionId}` },
+      { text: "⏭ Skip All",  callback_data: `sa:${sessionId}` },
+    ]);
+  }
+  const reply_markup = { inline_keyboard };
 
   const allChatIds = [chatId, ...extraChatIds].filter(Boolean);
   const url = `https://api.telegram.org/bot${token}/sendMessage`;
@@ -231,7 +248,7 @@ export async function sendFileChangeAlert(
  * @param {string|number} params.chatId
  * @param {number} params.messageId
  * @param {string} params.originalText     Text the alert was sent with
- * @param {"kept"|"rolled_back"|"session_ended"} params.outcome
+ * @param {"kept"|"rolled_back"|"skipped"|"session_ended"} params.outcome
  * @param {string|null} [params.by]        Telegram username (no @) — null/undefined for session_ended
  * @returns {Promise<boolean>}             true if the edit succeeded
  */
@@ -284,6 +301,8 @@ function resolutionLineFor(outcome, by) {
       return by ? `✅ Kept by @${by}` : "✅ Kept";
     case "rolled_back":
       return by ? `↩️ Rolled back by @${by}` : "↩️ Rolled back";
+    case "skipped":
+      return by ? `⏭ Skipped by @${by}` : "⏭ Skipped — no action taken";
     case "session_ended":
       return "⌛ Session ended — no action taken";
     default:

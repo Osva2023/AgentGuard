@@ -378,6 +378,168 @@ await testAsync("cleanupPendingAlerts — caps at timeoutMs when network hangs",
   } finally { globalThis.fetch = originalFetch; }
 });
 
+// ── batch actions (TASK-026) ───────────────────────────────────────────────────
+
+/** Seed a PendingChanges with N alerts for `sessionId`, each with one msg ref. */
+function seedPending(sessionId, n) {
+  const p = new PendingChanges();
+  for (let i = 0; i < n; i++) {
+    const id = p.register({
+      sessionId, path: `file${i}.env`, event: "modified", level: "HIGH", messageText: `M${i}`,
+    });
+    p.updateMessageRefs(id, [{ chatId: "c", messageId: 100 + i }]);
+  }
+  return p;
+}
+
+function batchCtx(pending) {
+  return {
+    token: "tok",
+    allowedChatIds: new Set(["123"]),
+    cwd: "/",
+    agent: "claude",
+    pending,
+    restoreFn: () => { throw new Error("restoreFn must not be called for batch actions"); },
+  };
+}
+
+function captureLogs(fn) {
+  const logs = [];
+  setSink((line) => logs.push(JSON.parse(line)));
+  return Promise.resolve(fn(logs)).finally(() => setSink(() => {}));
+}
+
+// ── 13 ────────────────────────────────────────────────────────────────────────
+await testAsync("Keep All approves every pending alert for the session", async () => {
+  const m = mockFetch();
+  try {
+    const p = seedPending("sess1", 3);
+    await captureLogs(async (logs) => {
+      const r = await handleCallbackQuery(
+        { id: "cbKA", from: { id: 123, username: "u" }, data: "ka:sess1" },
+        batchCtx(p)
+      );
+      assert.strictEqual(r.handled, true);
+      assert.strictEqual(r.action, "kept_all");
+      assert.strictEqual(r.count, 3);
+      assert.strictEqual(p.listUnresolved().length, 0, "all resolved");
+
+      // One telegram_keep (batch) audit entry per file.
+      const keeps = logs.filter((e) => e.event === "telegram_keep" && e.batch === true);
+      assert.strictEqual(keeps.length, 3);
+
+      // answerCallbackQuery "Kept 3" + one editMessageText per alert (buttons cleared).
+      const answer = m.calls.find((c) => c.url.includes("answerCallbackQuery"));
+      assert.strictEqual(answer.body.text, "Kept 3");
+      const edits = m.calls.filter((c) => c.url.includes("editMessageText"));
+      assert.strictEqual(edits.length, 3);
+      for (const e of edits) {
+        assert.deepStrictEqual(e.body.reply_markup, { inline_keyboard: [] });
+        assert.ok(e.body.text.includes("Kept"));
+      }
+    });
+  } finally { m.restore(); }
+});
+
+// ── 14 ────────────────────────────────────────────────────────────────────────
+await testAsync("Skip All closes every pending alert with no rollback", async () => {
+  const m = mockFetch();
+  try {
+    const p = seedPending("sess1", 2);
+    await captureLogs(async (logs) => {
+      // restoreFn in batchCtx throws if called — proves Skip All never rolls back.
+      const r = await handleCallbackQuery(
+        { id: "cbSA", from: { id: 123, username: "u" }, data: "sa:sess1" },
+        batchCtx(p)
+      );
+      assert.strictEqual(r.handled, true);
+      assert.strictEqual(r.action, "skipped_all");
+      assert.strictEqual(r.count, 2);
+      assert.strictEqual(p.listUnresolved().length, 0, "all closed");
+
+      const skips = logs.filter((e) => e.event === "telegram_skip" && e.batch === true);
+      assert.strictEqual(skips.length, 2);
+
+      const answer = m.calls.find((c) => c.url.includes("answerCallbackQuery"));
+      assert.strictEqual(answer.body.text, "Skipped 2");
+      const edits = m.calls.filter((c) => c.url.includes("editMessageText"));
+      assert.strictEqual(edits.length, 2);
+      for (const e of edits) assert.ok(e.body.text.includes("Skipped"));
+    });
+  } finally { m.restore(); }
+});
+
+// ── 15 ────────────────────────────────────────────────────────────────────────
+await testAsync("batch action only touches its own session", async () => {
+  const m = mockFetch();
+  try {
+    const p = seedPending("sess1", 2);
+    // A pending alert from a different session must be left alone.
+    const otherId = p.register({ sessionId: "OTHER", path: "z.env", event: "modified", level: "HIGH", messageText: "MZ" });
+    await captureLogs(async () => {
+      const r = await handleCallbackQuery(
+        { id: "cbKA", from: { id: 123, username: "u" }, data: "ka:sess1" },
+        batchCtx(p)
+      );
+      assert.strictEqual(r.count, 2, "only the 2 sess1 alerts are kept");
+    });
+    const stillOpen = p.listUnresolved();
+    assert.strictEqual(stillOpen.length, 1);
+    assert.strictEqual(stillOpen[0].changeId, otherId);
+  } finally { m.restore(); }
+});
+
+// ── 16 ────────────────────────────────────────────────────────────────────────
+await testAsync("batch action with nothing pending → Nothing pending", async () => {
+  const m = mockFetch();
+  try {
+    const p = new PendingChanges();
+    const r = await handleCallbackQuery(
+      { id: "cbKA", from: { id: 123, username: "u" }, data: "ka:sess1" },
+      batchCtx(p)
+    );
+    assert.strictEqual(r.handled, false);
+    assert.strictEqual(r.reason, "none-pending");
+    const answer = m.calls.find((c) => c.url.includes("answerCallbackQuery"));
+    assert.strictEqual(answer.body.text, "Nothing pending");
+  } finally { m.restore(); }
+});
+
+// ── 17 ────────────────────────────────────────────────────────────────────────
+await testAsync("unauthorized user cannot trigger a batch action", async () => {
+  const m = mockFetch();
+  try {
+    const p = seedPending("sess1", 3);
+    const ctx = { ...batchCtx(p), allowedChatIds: new Set(["999"]) };
+    const r = await handleCallbackQuery(
+      { id: "cbKA", from: { id: 123, username: "u" }, data: "ka:sess1" },
+      ctx
+    );
+    assert.strictEqual(r.handled, false);
+    assert.strictEqual(r.reason, "unauthorized");
+    assert.strictEqual(p.listUnresolved().length, 3, "nothing resolved");
+  } finally { m.restore(); }
+});
+
+// ── 18 ────────────────────────────────────────────────────────────────────────
+await testAsync("individual Keep still works alongside batch parsing", async () => {
+  const m = mockFetch();
+  try {
+    const p = seedPending("sess1", 2);
+    const targetId = p.listUnresolved()[0].changeId;
+    await captureLogs(async () => {
+      const r = await handleCallbackQuery(
+        { id: "cb1", from: { id: 123, username: "u" }, data: `k:${targetId}` },
+        batchCtx(p)
+      );
+      assert.strictEqual(r.handled, true);
+      assert.strictEqual(r.action, "kept");
+    });
+    // Only the single targeted entry is resolved; the other remains open.
+    assert.strictEqual(p.listUnresolved().length, 1);
+  } finally { m.restore(); }
+});
+
 console.log(`\n${passed + failed} tests: ${passed} passed, ${failed} failed\n`);
 
 if (failed > 0) process.exit(1);
