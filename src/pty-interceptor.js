@@ -52,6 +52,7 @@ import { evaluate } from "./correlator.js";
 import { isGitWorktreeOp, markGitOperation } from "./correlation-rules.js";
 import { filterFired, suppression } from "./suppression.js";
 import { startShellDaemon } from "./shell-daemon.js";
+import { registerPtySession, unregisterPtySession } from "./pty-registry.js";
 
 /** Resolve a binary name to its full path using `which`. */
 function resolveBin(name) {
@@ -375,6 +376,17 @@ export async function runPtyInterceptor({
       env,
     });
 
+    // ── PTY session registry (TASK-029) ───────────────────────────────────
+    // Record this live PTY process on disk so the daemon can terminate it on
+    // "Stop Daemon" instead of leaving the wrapped agent orphaned. Best-effort;
+    // unregistered in cleanup() on any exit path.
+    registerPtySession({
+      pid: pty.pid,
+      cwd: process.cwd(),
+      agent,
+      sessionId,
+    });
+
     // ── stdin / resize wiring ─────────────────────────────────────────────
     process.stdin.on("data", stdinHandler);
     enableForwarding();
@@ -390,6 +402,9 @@ export async function runPtyInterceptor({
       process.stdout.off("resize", onResize);
       process.stdin.off("data", stdinHandler);
       disableForwarding();
+      // Drop this session from the registry (TASK-029). Runs on every exit
+      // path — normal onExit and the deny/onTerminate teardown.
+      try { unregisterPtySession(pty?.pid); } catch {}
     }
 
     // ── PTY output handler ────────────────────────────────────────────────
