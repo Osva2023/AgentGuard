@@ -104,12 +104,23 @@ export async function handleCallbackQuery(cb, ctx) {
     return { handled: false, reason: "unauthorized" };
   }
 
-  // 2. Parse callback_data
-  const [action, changeId] = String(cb.data || "").split(":");
-  if (!changeId || (action !== "k" && action !== "r")) {
+  // 2. Parse callback_data.  Individual: "k:<changeId>" / "r:<changeId>".
+  //    Batch (TASK-026): "ka:<sessionId>" (Keep All) / "sa:<sessionId>" (Skip All).
+  const [action, arg] = String(cb.data || "").split(":");
+  if (!arg || !["k", "r", "ka", "sa"].includes(action)) {
     await answerCallback(token, cb.id, { text: "Unknown action" });
     return { handled: false, reason: "unknown-action" };
   }
+
+  const by = cb.from?.username || null;
+
+  // 2b. Batch actions resolve every unresolved entry for the session encoded in
+  //     the callback_data — no single changeId involved.
+  if (action === "ka" || action === "sa") {
+    return handleBatchAction(action, arg, { token, cb, pending, agent, by });
+  }
+
+  const changeId = arg;
 
   // 3. Resolve entry
   const entry = pending.resolve(changeId);
@@ -117,8 +128,6 @@ export async function handleCallbackQuery(cb, ctx) {
     await answerCallback(token, cb.id, { text: "Already handled or expired" });
     return { handled: false, reason: "missing-or-resolved" };
   }
-
-  const by = cb.from?.username || null;
 
   // 4. action "k" → Keep
   if (action === "k") {
@@ -152,6 +161,59 @@ export async function handleCallbackQuery(cb, ctx) {
   });
   // Leave entry unresolved — user can retry from terminal or button.
   return { handled: false, reason: "restore-failed", result };
+}
+
+/**
+ * Resolve every unresolved alert for one session in a single tap (TASK-026).
+ *
+ *   "ka" (Keep All)  → keep every pending change (no rollback).
+ *   "sa" (Skip All)  → close every pending alert with NO rollback (the changes
+ *                      stay on disk; the buttons are just cleared).
+ *
+ * Neither touches the working tree — Skip All deliberately does not call
+ * restoreFile.  Each affected alert is edited to clear its buttons and an audit
+ * entry (telegram_keep / telegram_skip, batch:true) is written per file.
+ *
+ * @param {"ka"|"sa"} action
+ * @param {string} sessionId  Session id parsed from the callback_data.
+ * @param {Object} ctx
+ * @returns {Promise<{handled:boolean, action?:string, count?:number, reason?:string}>}
+ */
+async function handleBatchAction(action, sessionId, { token, cb, pending, agent, by }) {
+  const entries = pending
+    .listUnresolved()
+    .filter((entry) => entry.sessionId === sessionId);
+
+  if (entries.length === 0) {
+    await answerCallback(token, cb.id, { text: "Nothing pending" });
+    return { handled: false, reason: "none-pending" };
+  }
+
+  const keep = action === "ka";
+  const outcome = keep ? "kept" : "skipped";
+
+  let count = 0;
+  for (const entry of entries) {
+    if (pending.markResolved(entry.changeId)) {
+      count++;
+      log({
+        event: keep ? "telegram_keep" : "telegram_skip",
+        file: entry.path,
+        by,
+        agent,
+        batch: true,
+      });
+    }
+  }
+
+  await answerCallback(token, cb.id, {
+    text: keep ? `Kept ${count}` : `Skipped ${count}`,
+  });
+
+  // Clear the buttons on every alert across all of its message refs.
+  await Promise.allSettled(entries.map((entry) => editAllRefs(token, entry, outcome, by)));
+
+  return { handled: true, action: keep ? "kept_all" : "skipped_all", count };
 }
 
 // ─── long-poll worker ────────────────────────────────────────────────────────

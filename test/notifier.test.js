@@ -406,6 +406,66 @@ await testAsync(
   }
 );
 
+// ── batch buttons (TASK-026) ────────────────────────────────────────────────────
+
+await testAsync(
+  "sendFileChangeAlert() adds Keep All / Skip All when pendingCount > 1",
+  async () => {
+    let body;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (_url, opts) => {
+      body = JSON.parse(opts.body);
+      return { ok: true, json: async () => ({ result: { message_id: 1 } }) };
+    };
+    try {
+      const config = { notifications: { telegram: { enabled: true, botToken: "t", chatId: "c" } } };
+      await sendFileChangeAlert(
+        { file: "src/.env", level: "HIGH", event: "modified",
+          sessionId: "sess1234", changeId: "deadbeef", agent: "claude", pendingCount: 3 },
+        config
+      );
+      const kb = body.reply_markup.inline_keyboard;
+      assert.strictEqual(kb.length, 2, "individual row + batch row");
+      assert.strictEqual(kb[0][0].callback_data, "k:deadbeef");
+      assert.strictEqual(kb[1][0].callback_data, "ka:sess1234");
+      assert.strictEqual(kb[1][1].callback_data, "sa:sess1234");
+      assert.ok(kb[1][0].text.includes("Keep All"));
+      assert.ok(kb[1][1].text.includes("Skip All"));
+      // Pending-count line in the body.
+      assert.ok(body.text.includes("3 pending events"));
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  }
+);
+
+await testAsync(
+  "sendFileChangeAlert() omits batch buttons when only one pending (default)",
+  async () => {
+    let body;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (_url, opts) => {
+      body = JSON.parse(opts.body);
+      return { ok: true, json: async () => ({ result: { message_id: 1 } }) };
+    };
+    try {
+      const config = { notifications: { telegram: { enabled: true, botToken: "t", chatId: "c" } } };
+      // pendingCount omitted → defaults to 1.
+      await sendFileChangeAlert(
+        { file: "src/.env", level: "HIGH", event: "modified",
+          sessionId: "sess1234", changeId: "deadbeef", agent: "claude" },
+        config
+      );
+      const kb = body.reply_markup.inline_keyboard;
+      assert.strictEqual(kb.length, 1, "only the individual row");
+      assert.ok(!body.text.includes("pending events"));
+      assert.ok(body.text.includes("keep or rollback"));
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  }
+);
+
 await testAsync(
   "sendFileChangeAlert() per-chat failure does not abort other chats",
   async () => {

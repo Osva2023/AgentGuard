@@ -270,7 +270,10 @@ export function startFileWatcher({
             sensitiveBackupDir,
           });
           sendFileChangeAlert(
-            { file: rel, level, event, sessionId, changeId, agent },
+            // pendingCount drives the "Keep All / Skip All" batch buttons
+            // (TASK-026).  Counted after register() above, so it includes this
+            // new entry — > 1 means other alerts are still awaiting a decision.
+            { file: rel, level, event, sessionId, changeId, agent, pendingCount: pending.listUnresolved().length },
             config
           )
             .then(({ text, refs }) => {
