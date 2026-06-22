@@ -348,7 +348,9 @@ servidor central en Railway.
 **Epic:** Estabilización  
 **Prioridad:** Media  
 **Scope:** syncToServer falla con abort en algunas operaciones. Puede ser el AbortController de 5 segundos disparándose, o el servidor Railway con problemas de conectividad. Agregar retry logic (1 reintento) y mejor logging del error específico.  
-**Acceptance:** Sync failures loguean el error específico. Un fallo transitorio no genera dos mensajes de error consecutivos.
+**Acceptance:** Sync failures loguean el error específico. Un fallo transitorio no genera dos mensajes de error consecutivos.  
+**Status:** DONE  
+**Nota:** `logger.js` → `syncToServer()` endurecido: timeout subido 5s→8s (`SYNC_TIMEOUT_MS`, para cold starts de Railway) + 1 reintento automático tras `SYNC_RETRY_DELAY_MS` (1s) **solo** para fallos transitorios (timeout/network). El error se clasifica vía `syncErrorKind()` en `timeout` (AbortError) / `network` (TypeError de fetch) / `auth` (HTTP 401/403, etiquetado y **sin** reintento) / `server` (otros non-2xx, sin reintento) — antes no se inspeccionaba el status y un 401/500 pasaba como "éxito" silencioso. `attemptSync()` aísla cada intento con su propio AbortController. Garantía de "un solo mensaje": si el reintento recupera, **cero** stderr; si falla, **exactamente una** línea `[AgentGuard] team sync failed (<kind>): <msg>` (nunca dos consecutivas). Sigue siendo fire-and-forget (retorna la promesa para tests, nunca lanza, nunca bloquea el daemon). Seams `{ fetchFn, sleepFn, timeoutMs, retryDelayMs }` para tests herméticos. Tests nuevos en `test/team-sync.test.js` (14 casos: gating de config, éxito+tag de machine, strip de slashes, reintento timeout/network, delay custom, single-line en doble fallo, no-retry de auth/server) añadidos a la cadena `test`. `npm test` verde.
 
 ---
 
