@@ -361,6 +361,17 @@ servidor central en Railway.
 
 ---
 
+### TASK-025 — BUG: el git stash snapshot bloquea el cierre de sesión
+**Epic:** Estabilización  
+**Prioridad:** Media  
+**Files:** `src/snapshot.js`, `package.json`  
+**Scope:** Al hacer exit en Claude Code, el `git stash` del snapshot (creado al inicio de sesión vía `createSnapshot()`) bloquea el proceso principal varios segundos en repos grandes/lentos — percibido como un cierre lento. Hacer el stash no-bloqueante con un timeout corto.  
+**Acceptance:** El snapshot no bloquea el proceso principal más de ~2s; si tarda más, la sesión continúa igual.  
+**Status:** DONE  
+**Nota:** `createSnapshot()` ahora acepta `{ cwd, timeoutMs, spawnFn }` (seam de spawn para tests) con `SNAPSHOT_TIMEOUT_MS = 2000` por defecto (antes el `git stash` tenía timeout de 15s). `spawnSync` con `timeout` mata git con SIGTERM al vencer; se detecta (`error.code === "ETIMEDOUT"` o `signal === "SIGTERM"`) y se retorna `{ created:false, timedOut:true, message:"… exceeded 2000ms; continuing without blocking." }` para que el inicio/cierre nunca quede colgado — rollback degradado esa sesión, pero proceso no bloqueado. `isGitRepo()` migrado de `execSync` a `spawnSync` con el mismo seam (retrocompatible para restoreSnapshot/restoreFile). El stash sigue siendo síncrono a propósito: debe capturar el árbol *pre-sesión* antes de que el agente toque archivos; correrlo en background mezclaría cambios del agente. Tests nuevos en `test/snapshot-create.test.js` (10 casos: default 2000ms, éxito, timeout ETIMEDOUT/SIGTERM, propagación del budget, árbol limpio, fallo no-timeout, no-repo) añadidos a la cadena `test`. `npm test` verde.
+
+---
+
 ## MODO REMOTO — Tickets para ejecutar desde el teléfono
 *Estos tickets están diseñados para ser ejecutados en sesiones cortas de Claude Code remoto.
 Cada uno tiene scope acotado, archivos específicos, y criterio de éxito claro.*
