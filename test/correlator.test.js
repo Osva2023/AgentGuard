@@ -5,10 +5,17 @@
  *   node --test test/correlator.test.js
  */
 
-import { describe, it } from "node:test";
+import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { EventBus } from "../src/event-bus.js";
 import { evaluate, evaluateOne, CORRELATION_RULES } from "../src/correlator.js";
+import {
+  isGitWorktreeOp,
+  hasRecentGitWorktreeOp,
+  markGitOperation,
+  isGitOperationActive,
+  _resetGitActivity,
+} from "../src/correlation-rules.js";
 
 // ─── Event factories ──────────────────────────────────────────────────────────
 
@@ -348,5 +355,149 @@ describe("rule: dependency-change-plus-network", () => {
     bus.push(fileEvent("file_write", "source", "index.js"));
     bus.push(execEvent("network_request", "curl https://example.com"));
     assert.equal(evaluateOne(bus, "dependency-change-plus-network"), null);
+  });
+});
+
+// ─── Git worktree-operation suppression (TASK-027) ────────────────────────────
+
+describe("isGitWorktreeOp()", () => {
+  it("recognises the worktree-reshaping subcommands", () => {
+    for (const cmd of [
+      "git checkout main",
+      "git checkout -b feature",
+      "git switch other-branch",
+      "git pull origin main",
+      "git merge feature",
+      "git rebase main",
+      "git reset --hard HEAD~1",
+      "git restore .",
+      "git stash pop",
+      "git -C /repo checkout dev", // global flag before the subcommand
+    ]) {
+      assert.ok(isGitWorktreeOp(cmd), `should match: ${cmd}`);
+    }
+  });
+
+  it("does not match read-only or non-deleting git commands", () => {
+    for (const cmd of ["git status", "git commit -m x", "git log", "git push origin main"]) {
+      assert.equal(isGitWorktreeOp(cmd), false, `should not match: ${cmd}`);
+    }
+  });
+
+  it("does not match non-git commands", () => {
+    assert.equal(isGitWorktreeOp("rm -rf node_modules"), false);
+    assert.equal(isGitWorktreeOp(""), false);
+    assert.equal(isGitWorktreeOp(undefined), false);
+  });
+
+  it("stays within a single command segment (no cross-pipe / && match)", () => {
+    // `git status` then a separate `rm` — the subcommand we care about must
+    // belong to the git invocation, not appear anywhere after a separator.
+    assert.equal(isGitWorktreeOp("git status && rm checkout"), false);
+  });
+});
+
+describe("git-operation suppression flag", () => {
+  beforeEach(_resetGitActivity);
+  afterEach(_resetGitActivity);
+
+  it("isGitOperationActive is false by default", () => {
+    assert.equal(isGitOperationActive(), false);
+  });
+
+  it("marking opens a window that later expires", () => {
+    const t0 = 1_000_000;
+    markGitOperation(t0, 5_000);
+    assert.ok(isGitOperationActive(t0 + 1_000), "active within TTL");
+    assert.ok(isGitOperationActive(t0 + 4_999), "active just before expiry");
+    assert.equal(isGitOperationActive(t0 + 5_000), false, "expired at TTL boundary");
+    assert.equal(isGitOperationActive(t0 + 9_000), false, "expired well after");
+  });
+
+  it("a later mark never shortens an existing window", () => {
+    const t0 = 1_000_000;
+    markGitOperation(t0, 5_000);          // window until t0+5000
+    markGitOperation(t0 + 100, 1_000);    // shorter ttl, would end at t0+1100
+    assert.ok(isGitOperationActive(t0 + 4_000), "longer window is preserved");
+  });
+});
+
+describe("rule: mass-delete — git suppression", () => {
+  beforeEach(_resetGitActivity);
+  afterEach(_resetGitActivity);
+
+  it("does NOT fire when the suppression flag is active (git checkout in flight)", () => {
+    markGitOperation(); // e.g. shell daemon saw `git checkout other-branch`
+    const bus = freshBus();
+    bus.push(fileEvent("file_delete", "source", "a.js"));
+    bus.push(fileEvent("file_delete", "source", "b.js"));
+    bus.push(fileEvent("file_delete", "source", "c.js"));
+    assert.equal(evaluateOne(bus, "mass-delete"), null);
+  });
+
+  it("does NOT fire when a recent git checkout is on the bus (PTY-decoder path)", () => {
+    const bus = freshBus();
+    bus.push(execEvent("git_operation", "git checkout other-branch"));
+    bus.push(fileEvent("file_delete", "source", "a.js"));
+    bus.push(fileEvent("file_delete", "source", "b.js"));
+    bus.push(fileEvent("file_delete", "source", "c.js"));
+    assert.equal(evaluateOne(bus, "mass-delete"), null);
+  });
+
+  it("does NOT fire for git switch / pull / merge either", () => {
+    for (const cmd of ["git switch dev", "git pull", "git merge feature"]) {
+      const bus = freshBus();
+      bus.push(execEvent("git_operation", cmd));
+      bus.push(fileEvent("file_delete", "source", "a.js"));
+      bus.push(fileEvent("file_delete", "source", "b.js"));
+      bus.push(fileEvent("file_delete", "source", "c.js"));
+      assert.equal(evaluateOne(bus, "mass-delete"), null, `should suppress for: ${cmd}`);
+    }
+  });
+
+  it("STILL fires for a real mass delete with no git op (rm -rf)", () => {
+    const bus = freshBus();
+    bus.push(execEvent("file_delete", "rm -rf src"));
+    bus.push(fileEvent("file_delete", "source", "a.js"));
+    bus.push(fileEvent("file_delete", "source", "b.js"));
+    bus.push(fileEvent("file_delete", "source", "c.js"));
+    assert.ok(evaluateOne(bus, "mass-delete") !== null);
+  });
+
+  it("STILL fires when the git checkout aged out of the bus lookback window", () => {
+    const bus = freshBus();
+    // git checkout 15s ago — outside the 10s git lookback window
+    bus.push(execEvent("git_operation", "git checkout other", ts(-15_000)));
+    bus.push(fileEvent("file_delete", "source", "a.js"));
+    bus.push(fileEvent("file_delete", "source", "b.js"));
+    bus.push(fileEvent("file_delete", "source", "c.js"));
+    assert.ok(evaluateOne(bus, "mass-delete") !== null);
+  });
+
+  it("a non-worktree git command (git commit) does not suppress", () => {
+    const bus = freshBus();
+    bus.push(execEvent("git_operation", "git commit -am wip"));
+    bus.push(fileEvent("file_delete", "source", "a.js"));
+    bus.push(fileEvent("file_delete", "source", "b.js"));
+    bus.push(fileEvent("file_delete", "source", "c.js"));
+    assert.ok(evaluateOne(bus, "mass-delete") !== null);
+  });
+});
+
+describe("hasRecentGitWorktreeOp()", () => {
+  it("true when a matching command is within the window", () => {
+    const bus = freshBus();
+    bus.push(execEvent("git_operation", "git switch main"));
+    assert.equal(hasRecentGitWorktreeOp(bus), true);
+  });
+
+  it("false on an empty bus", () => {
+    assert.equal(hasRecentGitWorktreeOp(freshBus()), false);
+  });
+
+  it("false when the only git command aged out of the window", () => {
+    const bus = freshBus();
+    bus.push(execEvent("git_operation", "git checkout x", ts(-15_000)));
+    assert.equal(hasRecentGitWorktreeOp(bus), false);
   });
 });

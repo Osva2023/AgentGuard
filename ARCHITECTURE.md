@@ -186,5 +186,5 @@ Main fields:
   ```bash
   git add <files>
   git commit -m "type(scope): description"
-  git push origin dev   # pushes to both remotes (morphius101, Osva2023)
+  git push origin dev   # pushes to origin (git@github.com:Osva2023/Ilum.git)
   ```

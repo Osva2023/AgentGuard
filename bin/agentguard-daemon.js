@@ -27,6 +27,8 @@ import { loadConfig } from "../src/config.js";
 import { startFileWatcher } from "../src/filewatcher.js";
 import { msUntilHour, buildDailyReportMessage } from "../src/daily-report.js";
 import { sendTelegramAlert } from "../src/notifier.js";
+import { terminatePtySessions } from "../src/pty-registry.js";
+import { shutdownSequence } from "../src/daemon-shutdown.js";
 import {
   logSessionStart,
   logSessionEnd,
@@ -179,19 +181,42 @@ if (dailyReport?.enabled === true) {
 
 let shuttingDown = false;
 
-function shutdown(signal) {
+// Ordered shutdown (TASK-029): on a stop signal the daemon first terminates any
+// active PTY sessions (so a wrapped agent in e.g. BeachFlags doesn't keep
+// running orphaned), THEN stops the file watchers, THEN finalizes itself.
+async function shutdown(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
   console.error(chalk.gray(`\n[AgentGuard daemon] received ${signal}, stopping…`));
   if (dailyReportTimeout) clearTimeout(dailyReportTimeout);
   if (dailyReportInterval) clearInterval(dailyReportInterval);
-  for (const w of watchers) {
-    try { w.stop(); } catch {}
+
+  const { pty } = await shutdownSequence({
+    // 2. Terminate active PTY sessions: SIGTERM → 2s grace → SIGKILL survivors.
+    terminatePty: () =>
+      terminatePtySessions({
+        log: (msg) => console.error(chalk.gray(`[AgentGuard daemon] ${msg}`)),
+      }),
+    // 3. Stop the file watchers.
+    stopWatchers: () => {
+      for (const w of watchers) {
+        try { w.stop(); } catch {}
+      }
+    },
+    // 4. Finalize the daemon.
+    finalize: () => {
+      try { fs.unlinkSync(PID_FILE); } catch {}
+      logSessionEnd("daemon");
+    },
+    log: (msg) => console.error(chalk.yellow(`[AgentGuard daemon] ${msg}`)),
+  });
+
+  if (pty.terminated === 0) {
+    console.error(chalk.gray("[AgentGuard daemon] no active PTY sessions to stop"));
   }
-  try { fs.unlinkSync(PID_FILE); } catch {}
-  logSessionEnd("daemon");
+
   process.exit(0);
 }
 
-process.on("SIGINT",  () => shutdown("SIGINT"));
-process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT",  () => { shutdown("SIGINT"); });
+process.on("SIGTERM", () => { shutdown("SIGTERM"); });

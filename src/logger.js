@@ -234,42 +234,128 @@ export function logFileRestore(result, ctx, agent) {
   });
 }
 
-// ─── team server sync (TASK-023) ──────────────────────────────────────────────
+// ─── team server sync (TASK-023, hardened in TASK-028) ────────────────────────
+
+/** Per-attempt abort budget. Raised from 5s → 8s to tolerate Railway cold
+ *  starts, which can take several seconds to wake the first request. */
+export const SYNC_TIMEOUT_MS = 8000;
+/** Delay before the single automatic retry of a transient failure. */
+export const SYNC_RETRY_DELAY_MS = 1000;
+
+/** Default async sleep — injectable in tests so retries don't take real time. */
+function defaultSleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Classify a sync failure into a short, human-readable kind so the stderr line
+ * says *why* it failed (timeout / network / auth / server) instead of the
+ * opaque "operation was aborted".
+ *
+ * @param {Error & { kind?: string }} err
+ * @returns {"timeout"|"network"|"auth"|"server"}
+ */
+function syncErrorKind(err) {
+  if (err?.kind) return err.kind;             // tagged below (auth / server)
+  if (err?.name === "AbortError") return "timeout";
+  // Native fetch surfaces connectivity failures (DNS, refused, reset) as a
+  // TypeError ("fetch failed", with a cause).  Treat anything else as network.
+  return "network";
+}
+
+/** Transient failures worth one retry; auth/server won't fix themselves. */
+function isRetriable(kind) {
+  return kind === "timeout" || kind === "network";
+}
+
+/**
+ * One POST attempt with its own abort timeout.  Resolves on a 2xx response;
+ * throws a tagged error on auth (401/403) or other non-2xx status, and
+ * propagates AbortError / network TypeErrors from fetch unchanged.
+ */
+async function attemptSync(url, body, token, fetchFn, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetchFn(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body,
+      signal: controller.signal,
+    });
+    if (res && (res.status === 401 || res.status === 403)) {
+      const e = new Error(`auth rejected by server (HTTP ${res.status})`);
+      e.kind = "auth";
+      throw e;
+    }
+    if (res && res.ok === false) {
+      const e = new Error(`server returned HTTP ${res.status}`);
+      e.kind = "server";
+      throw e;
+    }
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 /**
  * Forward one logged event to the central team server (agentguard-server).
  *
- * Fire-and-forget: returns immediately, never throws, never blocks the caller.
- * No-op unless both config.team.serverUrl and config.team.token are set. The
- * POST is tagged with this machine's hostname so the team dashboard can show a
- * "machine" column. Aborts after 5s so a slow/unreachable server can't pile up.
+ * Fire-and-forget: returns a promise (so tests can await) but the daemon never
+ * awaits it, it never throws, and it never blocks the caller. No-op unless both
+ * config.team.serverUrl and config.team.token are set. The POST is tagged with
+ * this machine's hostname so the team dashboard can show a "machine" column.
+ *
+ * Resilience (TASK-028): a transient failure (timeout / network) is retried
+ * once after SYNC_RETRY_DELAY_MS. Only if the retry also fails do we emit a
+ * single stderr line — so one flaky POST produces exactly one message, not two
+ * consecutive ones — and it names the error kind (timeout / network / auth /
+ * server) rather than the bare "operation was aborted".
  *
  * @param {Object} event   The exact entry returned by log()/logIntercepted()/logDetected().
  * @param {Object} config  Loaded config (reads config.team.serverUrl / token).
+ * @param {Object} [opts]  Test seams: { fetchFn, sleepFn, timeoutMs, retryDelayMs }.
+ * @returns {Promise<void>|undefined}
  */
-export function syncToServer(event, config) {
+export function syncToServer(event, config, opts = {}) {
   const team = config?.team;
   if (!team || !team.serverUrl || !team.token || !event) return;
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 5000);
+  const {
+    fetchFn = fetch,
+    sleepFn = defaultSleep,
+    timeoutMs = SYNC_TIMEOUT_MS,
+    retryDelayMs = SYNC_RETRY_DELAY_MS,
+  } = opts;
 
   const url = team.serverUrl.replace(/\/+$/, "") + "/api/events";
-  fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${team.token}`,
-    },
-    body: JSON.stringify({ ...event, machine: os.hostname() }),
-    signal: controller.signal,
-  })
-    .catch((err) => {
-      // Silent: a team-sync failure must never disrupt the daemon. Logged to
-      // stderr only, for observability.
-      process.stderr.write(`[AgentGuard] team sync failed: ${err.message}\n`);
-    })
-    .finally(() => clearTimeout(timeout));
+  const body = JSON.stringify({ ...event, machine: os.hostname() });
+
+  return (async () => {
+    try {
+      await attemptSync(url, body, team.token, fetchFn, timeoutMs);
+      return;
+    } catch (err) {
+      if (isRetriable(syncErrorKind(err))) {
+        // One retry for transient failures. If it recovers, stay silent.
+        await sleepFn(retryDelayMs);
+        try {
+          await attemptSync(url, body, team.token, fetchFn, timeoutMs);
+          return;
+        } catch (retryErr) {
+          // Fall through to the single failure log below with the retry's error.
+          err = retryErr;
+        }
+      }
+      // Single stderr line — never two consecutive messages for one event.
+      process.stderr.write(
+        `[AgentGuard] team sync failed (${syncErrorKind(err)}): ${err.message}\n`
+      );
+    }
+  })();
 }
 
 export { LOG_FILE, AGENTGUARD_DIR };

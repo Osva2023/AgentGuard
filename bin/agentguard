@@ -46,21 +46,28 @@ try {
 // Extract agentguard-specific flags before splitting into agent / agentArgs.
 const rawArgs = process.argv.slice(2);
 const auditOnlyFlag = rawArgs.includes("--audit-only");
-const filteredArgs = rawArgs.filter((a) => a !== "--audit-only");
+// --verbose / --debug surface Ilum's internal mode chatter (interceptor mode,
+// shell-wrapper / node-hook paths, degraded-interception warning). Off by
+// default so a normal session is quiet (TASK-024).
+const verboseFlag = rawArgs.includes("--verbose") || rawArgs.includes("--debug");
+const filteredArgs = rawArgs.filter(
+  (a) => a !== "--audit-only" && a !== "--verbose" && a !== "--debug"
+);
 const [agent, ...agentArgs] = filteredArgs;
 
 if (!agent || agent === "--help" || agent === "-h") {
   console.log(`
-${chalk.bold.cyan("Ilum")} ${chalk.gray("v" + VERSION)} ${chalk.gray("(formerly AgentGuard)")} — watches what your AI agents do
+${chalk.bold.cyan("Ilum")} ${chalk.gray("v1.0.0")} ${chalk.gray("(formerly AgentGuard)")} — watches what your AI agents do
 
 ${chalk.bold("Usage:")}
-  agentguard [--audit-only] <agent> [agent-args...]
+  agentguard [--audit-only] [--verbose] <agent> [agent-args...]
 
 ${chalk.bold("Examples:")}
   agentguard codex
   agentguard claude --print "refactor my auth module"
   agentguard aider --model gpt-4
   agentguard --audit-only claude --print "clean up this project"
+  agentguard --verbose claude   ${chalk.gray("# show internal mode / wrapper diagnostics")}
 
 ${chalk.bold("Setup:")}
   agentguard init              Interactive first-run setup wizard
@@ -338,7 +345,7 @@ if (process.stdout.isTTY) {
     );
 
     if (PTY_AVAILABLE) {
-      console.error(chalk.cyan("[AgentGuard] Mode: PTY interceptor\n"));
+      if (verboseFlag) console.error(chalk.cyan("[AgentGuard] Mode: PTY interceptor\n"));
       runSession = () =>
         runPtyInterceptor({
           agent,
@@ -346,8 +353,9 @@ if (process.stdout.isTTY) {
           stashRef: snap.stashRef,
           config,
           stats,
+          verbose: verboseFlag,
         });
-    } else {
+    } else if (verboseFlag) {
       console.error(
         chalk.yellow(
           "[AgentGuard] node-pty not available — falling back to log-based mode\n"
@@ -356,14 +364,16 @@ if (process.stdout.isTTY) {
     }
   } catch {
     // Import itself failed
-    console.error(
-      chalk.yellow("[AgentGuard] PTY interceptor failed to load — using log-based mode\n")
-    );
+    if (verboseFlag) {
+      console.error(
+        chalk.yellow("[AgentGuard] PTY interceptor failed to load — using log-based mode\n")
+      );
+    }
   }
 }
 
 if (!runSession) {
-  console.error(chalk.gray("[AgentGuard] Mode: log-based interceptor\n"));
+  if (verboseFlag) console.error(chalk.gray("[AgentGuard] Mode: log-based interceptor\n"));
   runSession = () =>
     runInterceptor({
       agent,

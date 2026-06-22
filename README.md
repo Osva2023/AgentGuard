@@ -168,10 +168,10 @@ Snapshot is skipped when: the directory is not a git repository, the working tre
 **Requires Node.js 18 or later.** Git is strongly recommended — snapshot and rollback require it.
 
 ```bash
-npm install -g ozilum
+npm install -g ilum
 ```
 
-The CLI is published on npm as [`ozilum`](https://www.npmjs.com/package/ozilum). After install, the `ilum` command is on your `PATH` (the `agentguard` command is also installed as an alias for backward compatibility).
+The CLI is published on npm as [`ilum`](https://www.npmjs.com/package/ilum). After install, the `ilum` command is on your `PATH` (the `agentguard` command is also installed as an alias for backward compatibility).
 
 To work from source (track `main`, hack on rules, etc.):
 
@@ -242,6 +242,8 @@ agentguard --help
 agentguard dashboard
 ```
 
+**`--verbose` flag:** shows internal mode warnings (PTY-only fallback, node-hook status). Hidden by default to keep output clean.
+
 ---
 
 ## Background daemon
@@ -269,6 +271,8 @@ The daemon reads `watchPaths` from `~/.agentguard/config.json`:
   ]
 }
 ```
+
+When stopped, Ilum terminates any active PTY sessions before shutting down — ensuring no agent processes are left running as orphans.
 
 Under launchd the daemon is registered as `com.agentguard.daemon` with `RunAtLoad=true` and `KeepAlive=true`, so it starts on login and restarts on crash. While installed, `daemon stop` only kills the process — launchd respawns it. Use `daemon uninstall` to actually disable it.
 
@@ -349,7 +353,49 @@ cd tray && npm install
 - **Right-click** the icon → minimal context menu with daemon status and Quit
 - The popup hides on blur (like a native menu bar item) and refreshes automatically when the daemon's state changes
 
-Electron is declared as an `optionalDependency` of the root package, so global installs of `ozilum` do not pull it in unless the user opts into the tray.
+Electron is declared as an `optionalDependency` of the root package, so global installs of `ilum` do not pull it in unless the user opts into the tray.
+
+---
+
+## Team Plan
+
+Ilum's team features are designed around a central workspace — one place where all machines in a team report, and one dashboard where anyone with access can see what every agent did.
+
+**How it works:**
+
+- Each developer installs ozilum and configures a team token
+- The daemon forwards every logged event to the team workspace, tagged with `os.hostname()`
+- A shared dashboard shows combined activity from all machines: machine selector, time-range filter, event table, live counters, auto-refresh every 10 seconds
+- Access is token-gated — only people with the token see the team's activity
+
+**Configuration:**
+
+Add to `~/.agentguard/config.json`:
+
+```json
+{
+  "team": {
+    "serverUrl": "https://your-workspace.ilum.dev",
+    "token": "your-team-token"
+  }
+}
+```
+
+`agentguard daemon status` shows:
+
+```
+Team sync: ✓ connected to https://your-workspace.ilum.dev
+```
+
+**Ilum Cloud — coming soon**
+
+A hosted workspace for teams — no server to deploy or maintain. Each team gets an isolated workspace, a shared dashboard, and a token to distribute. Built for small teams who want visibility into their AI agents without managing infrastructure.
+
+If you're interested in early access: [github.com/Osva2023/Ilum/discussions](https://github.com/Osva2023/Ilum/discussions)
+
+**Self-hosted**
+
+The server code lives in `agentguard-server/` — an Express + SQLite app you can deploy on Railway or any Node.js host if you prefer to run your own infrastructure.
 
 ---
 
@@ -483,6 +529,11 @@ When Telegram is configured, every sensitive file change during a session sends 
 - **✅ Keep** — accept the change.
 - **↩️ Rollback** — restore the file from the session snapshot in-place.
 
+When more than one event is pending, two additional buttons appear:
+
+- **✅ Keep All** — approve all pending events for the current session.
+- **⏭ Skip All** — dismiss all pending events without rolling back.
+
 ### Setup
 
 **1. Create a bot.** In Telegram, open a chat with [@BotFather](https://t.me/BotFather) and send `/newbot`. Follow the prompts to pick a name and username. BotFather replies with a token like `123456789:ABCdefGhIJK-lmnoPQRstUVWXyz` — that is your `botToken`.
@@ -573,7 +624,53 @@ The file watcher and Post-Action Review are the primary defenses and work across
 
 ---
 
-## What Ilum does not do
+## Beta testers wanted
+
+If you use Claude Code, Codex, or another CLI agent regularly, these are the most useful scenarios to test:
+
+**1. Basic wrap — just observe**
+```bash
+agentguard --audit-only claude --print "add a helper function to utils.js"
+```
+Check the session summary. Look at `~/.agentguard/audit.log`. Did it see what you expected?
+
+**2. Trigger the file watcher**
+```bash
+agentguard claude --print "add a REDIS_URL environment variable to the app"
+```
+AgentGuard should surface the `.env` diff in the Post-Action Review.
+
+**3. Test rollback**
+Same as above, but choose `[R]ollback` in the review. Verify the file is restored to its previous state.
+
+**4. Trigger command interception**
+Ask your agent to delete unused files. Watch if AgentGuard catches the `rm` before it runs.
+
+**5. Vague-prompt test**
+```bash
+agentguard claude --print "clean up this project and remove anything unused"
+```
+Count how many files AgentGuard logged vs. how many you expected. This is useful signal about scope drift.
+
+**6. Non-git directory**
+Run in a directory without git. AgentGuard should handle gracefully — no crash, snapshot step skipped with a clear message.
+
+**7. CI / no-TTY**
+Run in an environment with no interactive terminal. CRITICAL incidents should terminate the process with a non-zero exit code.
+
+**What feedback is most useful right now:**
+
+- False positives: things AgentGuard flagged that were obviously fine
+- False negatives: risky things that ran without being caught
+- Crashes or unexpected exits
+- Agents or workflows where AgentGuard didn't work at all
+- Friction: prompts that interrupted work in an annoying way
+
+**Where to report:** Open an issue at [github.com/Osva2023/Ilum](https://github.com/Osva2023/Ilum/issues). A short description of what you did and what happened is enough.
+
+---
+
+## What AgentGuard does not do
 
 - It is not an IDE plugin or editor extension
 - It does not replace code review
@@ -634,7 +731,7 @@ node test/classifier.test.js
 node test/config.test.js
 ```
 
-**338 tests across 92 suites, 0 failures.**
+**556 tests, 0 failures.**
 
 Stack: Pure Node.js ESM, no TypeScript, no build step.
 Runtime: `chalk`, `chokidar`, `express`, `nodemailer`; `node-pty` and `electron` are optional. Dev: `jest`.
@@ -644,10 +741,10 @@ Runtime: `chalk`, `chokidar`, `express`, `nodemailer`; `node-pty` and `electron`
 Bump the version, publish to npm, then commit and push the version bump:
 
 ```bash
-npm version 1.0.0 --no-git-tag-version
+npm version 1.0.3 --no-git-tag-version
 npm publish
 git add package.json
-git commit -m "chore: release 1.0.0"
+git commit -m "chore: release 1.0.3"
 git push
 ```
 

@@ -83,7 +83,7 @@
 **Dificultad:** Fácil (30 min)  
 **Files:** `package.json`, `README.md`  
 **Scope:** Mergear dev → main. Revisar README una vez más (instrucciones de Telegram más visibles, instrucciones de tray más claras). Bump version a 1.0.0. `npm publish`. Tag en git.  
-**Acceptance:** `npm install -g ozilum` instala v1.0.1. La página de npm muestra la versión correcta.  
+**Acceptance:** `npm install -g ilum` instala v1.0.0. La página de npm muestra la versión correcta.  
 **Status:** POSTPONED  
 **Nota:** Pospuesto — publicar cuando Semana 2 esté completa.
 
@@ -320,7 +320,7 @@ Parte 2 — Integración en el daemon:
 - Identificar la máquina con os.hostname()
 
 Parte 3 — Prueba con segunda máquina:
-- Instalar ozilum en segunda máquina
+- Instalar ilum en segunda máquina
 - Configurar team.serverUrl y team.token
 - Verificar que eventos de ambas máquinas aparecen en el 
   dashboard de Railway
@@ -330,6 +330,71 @@ tiempo real de dos máquinas distintas con su hostname.
 **Status:** DONE — Team Plan verificado en producción con dos máquinas 
 (Greys-Mac-mini.local y MacBookPro.lan) sincronizando eventos al 
 servidor central en Railway.
+
+---
+
+### TASK-024 — BUG: warning "pty-only mode" interrumpe al abrir Claude Code
+**Epic:** Estabilización / UX  
+**Prioridad:** Media  
+**Files:** `src/pty-interceptor.js`, `bin/agentguard`  
+**Scope:** Al abrir Claude Code en un workspace vigilado aparecía el warning amarillo "Shell wrapper not found … command interception falls back to PTY output scanning only." en cada arranque de sesión PTY, interrumpiendo la experiencia. El usuario no debería ver warnings de modo interno durante el uso normal.  
+**Acceptance:** Abrir una sesión no imprime warnings de modo interno por default; el modo degradado (pty-output-only) sigue funcionando y queda registrado.  
+**Status:** DONE  
+**Nota:** El mensaje se dispara cuando el binario Go `shell-wrapper/agentguard-shell` no está compilado/presente (`resolveWrapperPath()` → null) — pasa siempre con Claude Code si no se construyó el wrapper. Es diagnóstico válido (intercepción degradada a escaneo de salida PTY), pero molesto. Fix combinando las opciones 2 y 3 del ticket: nuevo helper puro `planWrapperNotice({ wrapperPath, verbose })` → `{ degraded, logToAudit, showOnStderr }`. El modo degradado **siempre** se registra en el audit log (`event: "interception_degraded", reason: "shell-wrapper-missing", mode: "pty-output-only"`) y **solo** se imprime a stderr con `--verbose`/`--debug` (o `AGENTGUARD_DEBUG`). También se silenciaron por default las demás líneas de "modo interno" (gray "Shell wrapper: …", "Node hook: …", cyan "Mode: PTY interceptor", "Mode: log-based", y los fallbacks de node-pty), todas gateadas tras `verbose`. `bin/agentguard`: parsea `--verbose`/`--debug` (las filtra para que no lleguen al agente, igual que `--audit-only`), las pasa como `verbose` a `runPtyInterceptor`, y documenta el flag en el `--help`. El comportamiento del modo pty-only es idéntico — solo cambia la verbosidad. Tests nuevos en `test/pty-startup-notice.test.js` (5: wrapper presente = sin notice; wrapper ausente = quiet+audit por default; visible solo con verbose; default quiet) añadidos a la cadena `test`. `npm test` verde.
+
+---
+
+### TASK-026 — Telegram: botones "Keep All" / "Skip All" (batch)
+**Epic:** Notificaciones / UX  
+**Prioridad:** Media  
+**Files:** `src/notifier.js`, `src/telegram-listener.js`, `src/filewatcher.js`  
+**Scope:** En sesiones largas con 10+ eventos, aprobar Keep/Rollback uno por uno es tedioso. Cuando hay más de 1 evento pendiente, agregar al mensaje de Telegram dos botones extra: "✅ Keep All" y "⏭ Skip All". Keep All aprueba todos los pendientes de la sesión; Skip All cierra todas las alertas sin rollback. Los botones individuales siguen igual. Mostrar el conteo: "3 pending events — approve individually or batch".  
+**Acceptance:** Keep All aprueba todos; Skip All cierra todos sin rollback; los individuales siguen funcionando; los batch buttons solo aparecen con más de 1 pendiente.  
+**Status:** DONE  
+**Nota:** `notifier.js` → `sendFileChangeAlert` ahora acepta `pendingCount` (default 1); cuando `> 1` (y hay `sessionId`) agrega una segunda fila de botones `ka:<sessionId>` / `sa:<sessionId>` y cambia la línea de instrucción por "N pending events — approve individually or batch". Nuevo outcome `skipped` en `editAlertResolved`/`resolutionLineFor` ("⏭ Skipped — no action taken"). `telegram-listener.js` → `handleCallbackQuery` parsea `ka`/`sa` además de `k`/`r` y delega en `handleBatchAction`, que filtra `pending.listUnresolved()` por `sessionId`, marca todos resueltos, loguea `telegram_keep`/`telegram_skip` con `batch:true` por archivo, limpia los botones de cada alerta (editAllRefs) y responde "Kept N"/"Skipped N"; Skip All **nunca** llama a restoreFile (sin rollback). La autorización aplica igual a las acciones batch; "Nothing pending" si no hay entradas. `filewatcher.js` pasa `pendingCount: pending.listUnresolved().length` (contado tras `register`, incluye la entrada nueva). Tests: +6 en `telegram-listener.test.js` (Keep All, Skip All sin rollback, scope por sesión, nothing-pending, unauthorized, individual sigue OK) y +2 en `notifier.test.js` (batch buttons presentes con `pendingCount>1`, ausentes por default). `npm test` verde (notifier 42, listener 18).
+
+---
+
+### TASK-027 — BUG: Falso positivo CRITICAL en git checkout entre ramas
+**Epic:** Estabilización  
+**Prioridad:** Alta  
+**Scope:** Cuando el agente hace git checkout de una rama a otra, Ilum dispara CRITICAL "Mass file deletion" por los archivos que git elimina del working tree. Son eliminaciones legítimas de git, no del agente.  
+**Fix:** Detectar operaciones git checkout/switch en el PTY interceptor y suprimir temporalmente la regla mass-delete durante esos eventos, o agregar contexto git al correlation engine para distinguir.  
+**Acceptance:** git checkout entre ramas no dispara mass-delete CRITICAL.  
+**Status:** DONE  
+**Nota:** `correlation-rules.js`: nuevo `isGitWorktreeOp(cmd)` (regex `git … checkout|switch|restore|reset|rebase|merge|pull|stash`, acotado a un solo segmento de comando con `[^|;&]*` para no cruzar pipes/`&&`/`;`) + dos señales de supresión que apaga la regla `mass-delete`: (1) `hasRecentGitWorktreeOp(bus, 10s)` — escaneo puro del bus, cubre comandos git vistos por el decoder de salida del PTY; (2) flag temporal `markGitOperation()`/`isGitOperationActive()` (TTL 5s, "suppress until" process-local, sin I/O) — cubre el caso de Claude Code/Codex, cuyos comandos van por el shell wrapper/node-hook y **nunca** llegan al bus. Se marca el flag desde `shell-daemon.js` (antes del early-return de comandos SAFE, porque `git checkout` clasifica SAFE) y desde `pty-interceptor.js` (junto al `bus.push`). `mass-delete.match()` retorna `false` si cualquiera de las dos señales está activa. Sigue disparando para `rm -rf`, `git commit`, o cuando el checkout ya caducó de la ventana. Tests nuevos en `correlator.test.js` (16 casos: regex, flag/TTL, supresión por flag y por bus, y regresiones que confirman que un mass-delete real sí dispara). `npm test` verde.
+
+---
+
+### TASK-028 — BUG: Team sync falla con "operation was aborted"
+**Epic:** Estabilización  
+**Prioridad:** Media  
+**Scope:** syncToServer falla con abort en algunas operaciones. Puede ser el AbortController de 5 segundos disparándose, o el servidor Railway con problemas de conectividad. Agregar retry logic (1 reintento) y mejor logging del error específico.  
+**Acceptance:** Sync failures loguean el error específico. Un fallo transitorio no genera dos mensajes de error consecutivos.  
+**Status:** DONE  
+**Nota:** `logger.js` → `syncToServer()` endurecido: timeout subido 5s→8s (`SYNC_TIMEOUT_MS`, para cold starts de Railway) + 1 reintento automático tras `SYNC_RETRY_DELAY_MS` (1s) **solo** para fallos transitorios (timeout/network). El error se clasifica vía `syncErrorKind()` en `timeout` (AbortError) / `network` (TypeError de fetch) / `auth` (HTTP 401/403, etiquetado y **sin** reintento) / `server` (otros non-2xx, sin reintento) — antes no se inspeccionaba el status y un 401/500 pasaba como "éxito" silencioso. `attemptSync()` aísla cada intento con su propio AbortController. Garantía de "un solo mensaje": si el reintento recupera, **cero** stderr; si falla, **exactamente una** línea `[AgentGuard] team sync failed (<kind>): <msg>` (nunca dos consecutivas). Sigue siendo fire-and-forget (retorna la promesa para tests, nunca lanza, nunca bloquea el daemon). Seams `{ fetchFn, sleepFn, timeoutMs, retryDelayMs }` para tests herméticos. Tests nuevos en `test/team-sync.test.js` (14 casos: gating de config, éxito+tag de machine, strip de slashes, reintento timeout/network, delay custom, single-line en doble fallo, no-retry de auth/server) añadidos a la cadena `test`. `npm test` verde.
+
+---
+
+### TASK-029 — BUG: Stop Daemon en tray icon no detiene sesión PTY activa
+**Epic:** Estabilización  
+**Prioridad:** Alta  
+**Scope:** Cuando hay una sesión PTY corriendo en un workspace (ej: BeachFlags), el botón "Stop Daemon" del tray icon no la detiene. El daemon se apaga pero el proceso PTY sigue corriendo independientemente.  
+**Fix:** Al detener el daemon, enviar señal de terminación a todos los procesos PTY activos registrados en la sesión actual.  
+**Acceptance:** Stop Daemon desde el tray detiene también todas las sesiones PTY activas.  
+**Status:** DONE  
+**Nota:** El daemon (file watcher) y las sesiones PTY (`agentguard <agent>` vía `runPtyInterceptor`) son **procesos distintos sin memoria compartida**, así que "Stop Daemon" apagaba el daemon y dejaba el agente PTY huérfano. Solución: registro en disco compartido. Nuevo `src/pty-registry.js`: cada sesión PTY escribe `~/.agentguard/pty-sessions/<pid>.json` al hacer spawn (`registerPtySession`, con `pid` del proceso pty del agente, cwd, agent, sessionId) y lo borra al salir (`unregisterPtySession` en `cleanup()` del pty-interceptor, cubre exit normal y onTerminate). `terminatePtySessions()` (seams `signalFn`/`isAliveFn`/`sleepFn`/`selfPid` para tests): SIGTERM a cada sesión viva → 2s de gracia (`PTY_TERMINATE_GRACE_MS`) → SIGKILL a sobrevivientes → poda entradas (incluye prune de stale/dead y nunca se señala a sí mismo); retorna `{terminated, killed, pids}` y loguea el conteo. Nuevo `src/daemon-shutdown.js` (`shutdownSequence`): orquesta el orden exacto **(2) terminar PTY → (3) parar file watchers → (4) finalizar daemon**, best-effort (un fallo en un paso no salta los demás). `bin/agentguard-daemon.js`: `shutdown()` ahora es async y usa `shutdownSequence` con `terminatePtySessions`; loguea cuántas sesiones se terminaron. El tray no necesitó cambios — su IPC `daemon-stop` ya invoca `agentguard daemon stop` → SIGTERM al daemon, que ahora hace el teardown ordenado. Registro de pty es `IS_TEST`-aware (escribe a tmpdir bajo NODE_ENV=test). Tests nuevos: `test/pty-registry.test.js` (11: register/list/unregister, malformed, SIGTERM→gracia→SIGKILL, sólo sobreviviente, skip self, prune stale, orden de señales) y `test/daemon-shutdown.test.js` (6: orden pty→watchers→finalize, await de async, resiliencia ante throws, default del resultado pty), añadidos a la cadena `test`. `npm test` verde.
+
+---
+
+### TASK-025 — BUG: el git stash snapshot bloquea el cierre de sesión
+**Epic:** Estabilización  
+**Prioridad:** Media  
+**Files:** `src/snapshot.js`, `package.json`  
+**Scope:** Al hacer exit en Claude Code, el `git stash` del snapshot (creado al inicio de sesión vía `createSnapshot()`) bloquea el proceso principal varios segundos en repos grandes/lentos — percibido como un cierre lento. Hacer el stash no-bloqueante con un timeout corto.  
+**Acceptance:** El snapshot no bloquea el proceso principal más de ~2s; si tarda más, la sesión continúa igual.  
+**Status:** DONE  
+**Nota:** `createSnapshot()` ahora acepta `{ cwd, timeoutMs, spawnFn }` (seam de spawn para tests) con `SNAPSHOT_TIMEOUT_MS = 2000` por defecto (antes el `git stash` tenía timeout de 15s). `spawnSync` con `timeout` mata git con SIGTERM al vencer; se detecta (`error.code === "ETIMEDOUT"` o `signal === "SIGTERM"`) y se retorna `{ created:false, timedOut:true, message:"… exceeded 2000ms; continuing without blocking." }` para que el inicio/cierre nunca quede colgado — rollback degradado esa sesión, pero proceso no bloqueado. `isGitRepo()` migrado de `execSync` a `spawnSync` con el mismo seam (retrocompatible para restoreSnapshot/restoreFile). El stash sigue siendo síncrono a propósito: debe capturar el árbol *pre-sesión* antes de que el agente toque archivos; correrlo en background mezclaría cambios del agente. Tests nuevos en `test/snapshot-create.test.js` (10 casos: default 2000ms, éxito, timeout ETIMEDOUT/SIGTERM, propagación del budget, árbol limpio, fallo no-timeout, no-repo) añadidos a la cadena `test`. `npm test` verde.
 
 ---
 

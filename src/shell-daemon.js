@@ -41,6 +41,7 @@ import fs from "fs";
 import chalk from "chalk";
 import { handleIncident } from "./enforcement.js";
 import { classify, requiresApproval, scoreWithContext } from "./classifier.js";
+import { isGitWorktreeOp, markGitOperation } from "./correlation-rules.js";
 import { logDetected } from "./logger.js";
 
 /** Cap inbound request size — prevents an unbounded buffer if a misbehaving
@@ -164,6 +165,15 @@ export async function startShellDaemon({
     // ── Classify ────────────────────────────────────────────────────────────
 
     const cmd = req.cmd;
+
+    // TASK-027: flag git worktree operations (checkout/switch/pull/merge/…) so
+    // the correlator suppresses mass-delete for the file deletions git performs.
+    // This is the reliable detection point for agents like Claude Code / Codex,
+    // whose commands route through the wrapper rather than the PTY-output decoder.
+    // Marked before the safe-command early return below — `git checkout` is
+    // classified SAFE and would otherwise return before reaching any flag.
+    if (isGitWorktreeOp(cmd)) markGitOperation();
+
     const result = classify(cmd);
 
     // Audit-only mode: log but never deny.

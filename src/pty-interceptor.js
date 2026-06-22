@@ -38,6 +38,7 @@ import os from "os";
 import { fileURLToPath } from "url";
 import { classify, requiresApproval, scoreWithContext } from "./classifier.js";
 import {
+  log,
   logSessionEnd,
   logSnapshotRestore,
   sessionId,
@@ -49,8 +50,10 @@ import { execSync } from "child_process";
 import { decodeCommand } from "./decoder.js";
 import { bus } from "./event-bus.js";
 import { evaluate } from "./correlator.js";
+import { isGitWorktreeOp, markGitOperation } from "./correlation-rules.js";
 import { filterFired, suppression } from "./suppression.js";
 import { startShellDaemon } from "./shell-daemon.js";
+import { registerPtySession, unregisterPtySession } from "./pty-registry.js";
 
 /** Resolve a binary name to its full path using `which`. */
 function resolveBin(name) {
@@ -109,6 +112,35 @@ function resolveNodeHookPath() {
     if (fs.statSync(candidate).isFile()) return candidate;
   } catch {}
   return null;
+}
+
+// ─── startup notices (TASK-024) ──────────────────────────────────────────────
+
+/**
+ * Decide how to surface the "shell wrapper missing" condition.
+ *
+ * When the Go shell-wrapper binary isn't present, command interception degrades
+ * to PTY-output scanning only.  That is a real (and useful) diagnostic, but it
+ * must not interrupt normal use by printing a yellow warning on every session
+ * start — the user only opted into watching, not into Ilum's internal mode
+ * chatter.  So: always record the degraded mode to the audit log (observable
+ * after the fact), but only echo it to stderr when the user asked for verbose
+ * output (`--verbose` / `--debug`).
+ *
+ * Pure so it can be unit-tested without spawning a PTY.
+ *
+ * @param {Object} opts
+ * @param {string|null} opts.wrapperPath  Resolved wrapper path, or null if missing.
+ * @param {boolean} [opts.verbose]        Whether verbose/debug output is enabled.
+ * @returns {{ degraded: boolean, logToAudit: boolean, showOnStderr: boolean }}
+ */
+export function planWrapperNotice({ wrapperPath, verbose = false }) {
+  const degraded = !wrapperPath;
+  return {
+    degraded,
+    logToAudit: degraded,            // record degraded interception regardless of verbosity
+    showOnStderr: degraded && !!verbose, // quiet by default; only with --verbose/--debug
+  };
 }
 
 // ─── node-pty availability ───────────────────────────────────────────────────
@@ -171,12 +203,18 @@ export async function runPtyInterceptor({
   stashRef,
   config,
   stats,
+  verbose = false,
 }) {
   if (!PTY_AVAILABLE) {
     throw new Error(
       "node-pty is not available; use the log-based interceptor instead"
     );
   }
+
+  // Verbose/debug surfaces Ilum's internal mode chatter (wrapper path, node
+  // hook path, degraded-interception warning).  Off by default so a normal
+  // session stays quiet; togglable via --verbose/--debug or AGENTGUARD_DEBUG.
+  const verboseMode = verbose || !!process.env.AGENTGUARD_DEBUG;
 
   const { spawn: ptySpawn } = _nodePty;
 
@@ -335,9 +373,11 @@ export async function runPtyInterceptor({
       env.SHELL = wrapperPath;
       env.AGENTGUARD_SOCKET = socketPath;
       env.AGENTGUARD_SESSION_ID = sessionId;
-      console.error(
-        chalk.gray(`[AgentGuard] Shell wrapper: ${wrapperPath}`)
-      );
+      if (verboseMode) {
+        console.error(
+          chalk.gray(`[AgentGuard] Shell wrapper: ${wrapperPath}`)
+        );
+      }
 
       // Layer 1.6 — Node runtime hook.  Most Node-based agents (Codex,
       // Claude Code, aider) bypass $SHELL and call /bin/sh directly through
@@ -353,17 +393,28 @@ export async function runPtyInterceptor({
         env.NODE_OPTIONS = env.NODE_OPTIONS
           ? `${flag} ${env.NODE_OPTIONS}`
           : flag;
-        console.error(
-          chalk.gray(`[AgentGuard] Node hook:     ${hookPath}`)
-        );
+        if (verboseMode) {
+          console.error(
+            chalk.gray(`[AgentGuard] Node hook:     ${hookPath}`)
+          );
+        }
       }
     } else {
-      console.error(
-        chalk.yellow(
-          "[AgentGuard] Shell wrapper not found at shell-wrapper/agentguard-shell{,.sh} — " +
-            "command interception falls back to PTY output scanning only."
-        )
-      );
+      // Degraded interception (TASK-024): record it in the audit log so it's
+      // observable, but stay quiet on stderr unless verbose — the user should
+      // not see internal-mode warnings during normal use.
+      const notice = planWrapperNotice({ wrapperPath, verbose: verboseMode });
+      if (notice.logToAudit) {
+        log({ event: "interception_degraded", reason: "shell-wrapper-missing", mode: "pty-output-only", agent });
+      }
+      if (notice.showOnStderr) {
+        console.error(
+          chalk.yellow(
+            "[AgentGuard] Shell wrapper not found at shell-wrapper/agentguard-shell{,.sh} — " +
+              "command interception falls back to PTY output scanning only."
+          )
+        );
+      }
     }
 
     pty = ptySpawn(resolvedAgent, agentArgs, {
@@ -372,6 +423,17 @@ export async function runPtyInterceptor({
       rows: process.stdout.rows || 24,
       cwd: process.cwd(),
       env,
+    });
+
+    // ── PTY session registry (TASK-029) ───────────────────────────────────
+    // Record this live PTY process on disk so the daemon can terminate it on
+    // "Stop Daemon" instead of leaving the wrapped agent orphaned. Best-effort;
+    // unregistered in cleanup() on any exit path.
+    registerPtySession({
+      pid: pty.pid,
+      cwd: process.cwd(),
+      agent,
+      sessionId,
     });
 
     // ── stdin / resize wiring ─────────────────────────────────────────────
@@ -389,6 +451,9 @@ export async function runPtyInterceptor({
       process.stdout.off("resize", onResize);
       process.stdin.off("data", stdinHandler);
       disableForwarding();
+      // Drop this session from the registry (TASK-029). Runs on every exit
+      // path — normal onExit and the deny/onTerminate teardown.
+      try { unregisterPtySession(pty?.pid); } catch {}
     }
 
     // ── PTY output handler ────────────────────────────────────────────────
@@ -410,6 +475,11 @@ export async function runPtyInterceptor({
         const event = decodeCommand(line.replace(ANSI_RE, "").trim());
         if (event) {
           bus.push(event);
+          // TASK-027: a git worktree op (checkout/switch/pull/merge/…) about to
+          // reshape the tree — flag it so the file deletions git performs don't
+          // trip mass-delete. Set alongside the bus push so both correlator
+          // suppression signals are armed before evaluate() runs.
+          if (isGitWorktreeOp(event.command)) markGitOperation();
           const fired = filterFired(evaluate(bus), suppression);
           for (const rule of fired) {
             console.error(
