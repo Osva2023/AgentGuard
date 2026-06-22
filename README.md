@@ -236,6 +236,8 @@ agentguard --help
 agentguard dashboard
 ```
 
+**`--verbose` flag:** shows internal mode warnings (PTY-only fallback, node-hook status). Hidden by default to keep output clean.
+
 ---
 
 ## Background daemon
@@ -263,6 +265,8 @@ The daemon reads `watchPaths` from `~/.agentguard/config.json`:
   ]
 }
 ```
+
+When stopped, Ilum terminates any active PTY sessions before shutting down — ensuring no agent processes are left running as orphans.
 
 Under launchd the daemon is registered as `com.agentguard.daemon` with `RunAtLoad=true` and `KeepAlive=true`, so it starts on login and restarts on crash. While installed, `daemon stop` only kills the process — launchd respawns it. Use `daemon uninstall` to actually disable it.
 
@@ -390,6 +394,11 @@ When Telegram is configured, every sensitive file change during a session sends 
 
 - **✅ Keep** — accept the change.
 - **↩️ Rollback** — restore the file from the session snapshot in-place.
+
+When more than one event is pending, two additional buttons appear:
+
+- **✅ Keep All** — approve all pending events for the current session.
+- **⏭ Skip All** — dismiss all pending events without rolling back.
 
 ### Setup
 
@@ -595,7 +604,7 @@ node test/classifier.test.js
 node test/config.test.js
 ```
 
-**338 tests across 92 suites, 0 failures.**
+**556 tests, 0 failures.**
 
 Stack: Pure Node.js ESM, no TypeScript, no build step.
 Runtime: `chalk`, `chokidar`, `node-pty`, `express`. Dev: `jest`.
@@ -605,10 +614,10 @@ Runtime: `chalk`, `chokidar`, `node-pty`, `express`. Dev: `jest`.
 Bump the version, publish to npm, then commit and push the version bump:
 
 ```bash
-npm version 0.3.0 --no-git-tag-version
+npm version 1.0.3 --no-git-tag-version
 npm publish
 git add package.json
-git commit -m "chore: release 0.3.0"
+git commit -m "chore: release 1.0.3"
 git push
 ```
 
