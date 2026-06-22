@@ -333,6 +333,17 @@ servidor central en Railway.
 
 ---
 
+### TASK-024 — BUG: warning "pty-only mode" interrumpe al abrir Claude Code
+**Epic:** Estabilización / UX  
+**Prioridad:** Media  
+**Files:** `src/pty-interceptor.js`, `bin/agentguard`  
+**Scope:** Al abrir Claude Code en un workspace vigilado aparecía el warning amarillo "Shell wrapper not found … command interception falls back to PTY output scanning only." en cada arranque de sesión PTY, interrumpiendo la experiencia. El usuario no debería ver warnings de modo interno durante el uso normal.  
+**Acceptance:** Abrir una sesión no imprime warnings de modo interno por default; el modo degradado (pty-output-only) sigue funcionando y queda registrado.  
+**Status:** DONE  
+**Nota:** El mensaje se dispara cuando el binario Go `shell-wrapper/agentguard-shell` no está compilado/presente (`resolveWrapperPath()` → null) — pasa siempre con Claude Code si no se construyó el wrapper. Es diagnóstico válido (intercepción degradada a escaneo de salida PTY), pero molesto. Fix combinando las opciones 2 y 3 del ticket: nuevo helper puro `planWrapperNotice({ wrapperPath, verbose })` → `{ degraded, logToAudit, showOnStderr }`. El modo degradado **siempre** se registra en el audit log (`event: "interception_degraded", reason: "shell-wrapper-missing", mode: "pty-output-only"`) y **solo** se imprime a stderr con `--verbose`/`--debug` (o `AGENTGUARD_DEBUG`). También se silenciaron por default las demás líneas de "modo interno" (gray "Shell wrapper: …", "Node hook: …", cyan "Mode: PTY interceptor", "Mode: log-based", y los fallbacks de node-pty), todas gateadas tras `verbose`. `bin/agentguard`: parsea `--verbose`/`--debug` (las filtra para que no lleguen al agente, igual que `--audit-only`), las pasa como `verbose` a `runPtyInterceptor`, y documenta el flag en el `--help`. El comportamiento del modo pty-only es idéntico — solo cambia la verbosidad. Tests nuevos en `test/pty-startup-notice.test.js` (5: wrapper presente = sin notice; wrapper ausente = quiet+audit por default; visible solo con verbose; default quiet) añadidos a la cadena `test`. `npm test` verde.
+
+---
+
 ### TASK-026 — Telegram: botones "Keep All" / "Skip All" (batch)
 **Epic:** Notificaciones / UX  
 **Prioridad:** Media  
