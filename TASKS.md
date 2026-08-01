@@ -1,4 +1,4 @@
-# AgentGuard — Task Board
+# Ilum — Task Board
 **Objetivo:** Cerrar v1.0.0 en estado estable y documentado antes de pasar a modo remoto.
 **Rama de trabajo:** `dev` → merge a `main` al cerrar cada semana.
 
@@ -417,6 +417,14 @@ servidor central en Railway.
 
 Es decir: **es exactamente al revés de lo reportado.** `main` (la base publicada) ya tiene el branding "Ilum" correcto y la lectura dinámica de versión. `dev` es el que quedó con el branding viejo "AgentGuard" y la versión hardcodeada — probablemente porque `dev` no absorbió de vuelta los cambios que sí se aplicaron sobre `main` en el merge del 2026-06-22 (`a384e67`/`16a480d`).  
 **Estado real (menor, no urgente):** `dev` está desalineado de `main` en branding/versión en esos 6 archivos. No bloquea nada hoy porque lo publicado a npm sale de `main`, que está bien. Si se quiere corregir, es sincronizar esos 6 archivos de `dev` con el contenido de `main` (o hacer merge `main → dev` una vez) — pendiente de decisión, no se tocó en esta sesión. `bin/agentguard` requeriría revisión explícita por ser archivo protegido.
+
+**Anexo — pendiente resuelto (2026-08-01):** Sincronizado archivo por archivo (sin merge en bloque, para no pisar contenido propio de `dev`):
+- `CLAUDE.md`, `ARCHITECTURE.md`, `TASKS.md`: encabezado/intro vueltos a "Ilum" (única línea que difería; el resto del contenido de `dev` en estos archivos no se tocó).
+- `tray/index.html`, `src/dashboard/public/index.html`, `agentguard-server/dashboard.html`: `<title>`, logo, footer y (team dashboard) los dos prompts de token, vueltos a "Ilum".
+- `bin/agentguard`: restaurada quirúrgicamente la lectura dinámica de `VERSION` desde `package.json` (imports + try/catch) y el banner `v" + VERSION`; diff mostrado antes de commitear; queda byte-idéntico a `main` en esa función. Nada más del archivo se tocó.
+- `README.md`: **no** se copió en bloque desde `main` — el README de `main` tiene su propia divergencia estructural (sección "Team Plan" duplicada, y le faltan las secciones de Memory scanner/Slack/Discord/email que `dev` ya documenta). En cambio, se reemplazaron in-place las ~25 menciones sueltas de "AgentGuard" como nombre de producto por "Ilum" dentro del README actual de `dev`, preservando toda su estructura, secciones e instrucciones de instalación (`npm install -g ozilum`, ya correctas de la sesión anterior).
+- `package.json` / `package-lock.json`: revisados, sin cambios — `dev` ya tiene `1.0.3`/`1.0.3` consistente, más sano que el propio `main` (`1.0.3` en `package.json` pero `1.0.2` en su `package-lock.json`).
+`npm test` verde tras el cambio. Verificado que no queda "AgentGuard" como nombre de producto en ninguno de estos archivos (solo quedan, intencionalmente, el subtítulo "*formerly AgentGuard*" del README y las URLs reales `github.com/Osva2023/AgentGuard`, fuera de alcance de este fix). Commits: `faee174` (código/docs) sobre `dev`.
 
 ---
 
