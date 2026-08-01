@@ -6,7 +6,7 @@
 
 A terminal safety layer for AI coding agents.
 
-AgentGuard wraps any CLI coding agent — Claude Code, Codex, aider — and watches what it does while it works. When behavior looks risky or out of scope, it intervenes: pausing execution, showing you a preview of what would happen, and asking for your approval before anything destructive continues.
+Ilum wraps any CLI coding agent — Claude Code, Codex, aider — and watches what it does while it works. When behavior looks risky or out of scope, it intervenes: pausing execution, showing you a preview of what would happen, and asking for your approval before anything destructive continues.
 
 It is **not an editor plugin**. It does not run inside VS Code or Cursor. It works in the terminal, where CLI agents actually execute.
 
@@ -14,7 +14,7 @@ It is **not an editor plugin**. It does not run inside VS Code or Cursor. It wor
 
 ## In action
 
-![AgentGuard intercepting a CRITICAL mass-delete](docs/screenshots/critical-intercept.png)
+![Ilum intercepting a CRITICAL mass-delete](docs/screenshots/critical-intercept.png)
 ![Post-Action Review](docs/screenshots/post-action-review.png)
 ![Session Summary](docs/screenshots/session-summary.png)
 
@@ -29,7 +29,7 @@ AI coding agents are powerful, but they routinely do more than you asked:
 - chaining several low-risk actions into a dangerous pattern
 - writing to credentials, rewriting git history, or bumping engine requirements as a "helpful" side effect
 
-The principle behind AgentGuard:
+The principle behind Ilum:
 
 > **Do not block what you explicitly asked for. Catch the unintended side effects.**
 
@@ -43,7 +43,7 @@ The principle behind AgentGuard:
 
 The agent wired up the routes, created the client wrapper, added the import — then pulled `OPENAI_API_KEY=sk-proj-...` from earlier in the session and wrote it to `.env`.
 
-AgentGuard surfaced the diff in the Post-Action Review. The key looked right, but it was an old key from a previous project, already rotated. Rolled back, set the correct key manually. Without the diff, that broken key would have shipped.
+Ilum surfaced the diff in the Post-Action Review. The key looked right, but it was an old key from a previous project, already rotated. Rolled back, set the correct key manually. Without the diff, that broken key would have shipped.
 
 ### The cleanup that wasn't
 
@@ -51,7 +51,7 @@ AgentGuard surfaced the diff in the Post-Action Review. The key looked right, bu
 
 The agent scanned, found files with no obvious imports, and queued `rm -rf ./utils/legacy`.
 
-AgentGuard flagged it **CRITICAL** before the command ran. The directory stayed. A background job imports `legacy/pdf-parser.js` — nobody had touched it in eight months.
+Ilum flagged it **CRITICAL** before the command ran. The directory stayed. A background job imports `legacy/pdf-parser.js` — nobody had touched it in eight months.
 
 ### The force push
 
@@ -59,7 +59,7 @@ AgentGuard flagged it **CRITICAL** before the command ran. The directory stayed.
 
 The agent resolved the conflict cleanly. Then it pushed with `git push --force`.
 
-AgentGuard caught the command before execution. Three teammates had pushed to that branch that morning. A force push would have silently rewritten their work.
+Ilum caught the command before execution. Three teammates had pushed to that branch that morning. A force push would have silently rewritten their work.
 
 ### The silent `package.json` edit
 
@@ -67,7 +67,7 @@ AgentGuard caught the command before execution. Three teammates had pushed to th
 
 The agent installed `express-rate-limit` and wired it up correctly. It also bumped `engines` in `package.json` from `>=16` to `>=20` because the package uses modern syntax.
 
-AgentGuard showed the diff in the Post-Action Review. The deployment environment was pinned to Node 18. That bump would have broken the next deploy.
+Ilum showed the diff in the Post-Action Review. The deployment environment was pinned to Node 18. That bump would have broken the next deploy.
 
 ---
 
@@ -81,7 +81,7 @@ The agent runs inside a PTY wrapper (or a log-based fallback). Every shell comma
 
 ```
 ┌───────────────────────────────────────────────────────┐
-│  AgentGuard — CRITICAL RISK OPERATION                 │
+│  Ilum — CRITICAL RISK OPERATION                       │
 ├───────────────────────────────────────────────────────┤
 │  Command:  rm -rf dist/                               │
 │  Risk:     CRITICAL                                   │
@@ -128,13 +128,13 @@ CRITICAL correlation incidents block the session the same way command incidents 
 | `HIGH` | Approval prompt shown, session paused |
 | `WARN` | Approval prompt shown |
 
-CRITICAL incidents are never quietly deferred. If there is no interactive TTY (CI environment, piped output), AgentGuard denies and terminates rather than allowing the session to continue.
+CRITICAL incidents are never quietly deferred. If there is no interactive TTY (CI environment, piped output), Ilum denies and terminates rather than allowing the session to continue.
 
 ---
 
 ## Approval preview
 
-Before showing the prompt, AgentGuard builds a context preview sized for the terminal:
+Before showing the prompt, Ilum builds a context preview sized for the terminal:
 
 | Situation | Preview content |
 |---|---|
@@ -149,7 +149,7 @@ Before showing the prompt, AgentGuard builds a context preview sized for the ter
 
 ## Snapshot and restore
 
-At the start of every session, AgentGuard runs `git stash -u` to capture the full working tree. When an incident is denied, the snapshot is restored automatically before the session terminates — regardless of whether the deny was triggered by autoDeny, a no-TTY CRITICAL, or an interactive choice.
+At the start of every session, Ilum runs `git stash -u` to capture the full working tree. When an incident is denied, the snapshot is restored automatically before the session terminates — regardless of whether the deny was triggered by autoDeny, a no-TTY CRITICAL, or an interactive choice.
 
 Restore result (success or failure) is written to the audit log as a `snapshot_restore` event.
 
@@ -176,7 +176,7 @@ npm install
 npm link
 ```
 
-`node-pty` native bindings compile during `npm install` via `node-gyp`. If the build fails, AgentGuard falls back to log-based interception automatically — no extra configuration needed.
+`node-pty` native bindings compile during `npm install` via `node-gyp`. If the build fails, Ilum falls back to log-based interception automatically — no extra configuration needed.
 
 ### First-run setup
 
@@ -242,7 +242,7 @@ agentguard dashboard
 
 ## Background daemon
 
-AgentGuard can run as a persistent file-watcher daemon that monitors configured directories without an active agent session. It uses audit-only mode (no prompts, no enforcement, no Telegram alerts) and writes every sensitive file change to `~/.agentguard/audit.log`.
+Ilum can run as a persistent file-watcher daemon that monitors configured directories without an active agent session. It uses audit-only mode (no prompts, no enforcement, no Telegram alerts) and writes every sensitive file change to `~/.agentguard/audit.log`.
 
 ```bash
 agentguard daemon start      # launch in the background (detached)
@@ -274,7 +274,7 @@ Under launchd the daemon is registered as `com.agentguard.daemon` with `RunAtLoa
 
 ## Menu bar app (macOS)
 
-AgentGuard ships with a small Electron tray app that lives in the macOS menu bar. It surfaces daemon liveness at a glance and gives you one-click access to start, stop, and inspect activity — without dropping into a terminal.
+Ilum ships with a small Electron tray app that lives in the macOS menu bar. It surfaces daemon liveness at a glance and gives you one-click access to start, stop, and inspect activity — without dropping into a terminal.
 
 ```bash
 agentguard tray              # launches the menu bar app (detached)
@@ -362,7 +362,7 @@ In audit-only mode:
 - No snapshot restore is triggered
 - The session summary shows "AUDIT-ONLY MODE" and "observed" instead of "intercepted"
 
-This is useful for a first run on a new project, or for teams that want to understand what AgentGuard would flag before committing to enforcement.
+This is useful for a first run on a new project, or for teams that want to understand what Ilum would flag before committing to enforcement.
 
 ---
 
@@ -512,11 +512,11 @@ jq 'select(.event == "snapshot_restore")' ~/.agentguard/audit.log
 
 ## Current limitations
 
-AgentGuard is in early beta. These are known, honest gaps:
+Ilum is in early beta. These are known, honest gaps:
 
 **Command interception varies by agent architecture.**
 
-AgentGuard uses three layers of defense. Their effectiveness depends on the agent:
+Ilum uses three layers of defense. Their effectiveness depends on the agent:
 
 | Layer | Claude Code | Codex | Copilot CLI |
 |-------|-------------|-------|-------------|
@@ -527,7 +527,7 @@ AgentGuard uses three layers of defense. Their effectiveness depends on the agen
 
 The file watcher and Post-Action Review are the primary and most reliable defenses across all agents. Command interception in real time is best-effort and agent-dependent.
 
-**No kernel-level visibility.** AgentGuard does not monitor OS-level events (`execve`, `unlink`, `openat`, `connect`). It infers behavior from visible terminal output and filesystem changes, not from what actually executed at the OS level.
+**No kernel-level visibility.** Ilum does not monitor OS-level events (`execve`, `unlink`, `openat`, `connect`). It infers behavior from visible terminal output and filesystem changes, not from what actually executed at the OS level.
 
 **File monitoring has scope limits.** The file watcher only sees changes in the host filesystem under the watched path. Changes inside isolated containers that are not bind-mounted, or non-file side effects (database writes, cloud API calls), are not visible.
 
@@ -553,39 +553,39 @@ Check the session summary. Look at `~/.agentguard/audit.log`. Did it see what yo
 ```bash
 agentguard claude --print "add a REDIS_URL environment variable to the app"
 ```
-AgentGuard should surface the `.env` diff in the Post-Action Review.
+Ilum should surface the `.env` diff in the Post-Action Review.
 
 **3. Test rollback**
 Same as above, but choose `[R]ollback` in the review. Verify the file is restored to its previous state.
 
 **4. Trigger command interception**
-Ask your agent to delete unused files. Watch if AgentGuard catches the `rm` before it runs.
+Ask your agent to delete unused files. Watch if Ilum catches the `rm` before it runs.
 
 **5. Vague-prompt test**
 ```bash
 agentguard claude --print "clean up this project and remove anything unused"
 ```
-Count how many files AgentGuard logged vs. how many you expected. This is useful signal about scope drift.
+Count how many files Ilum logged vs. how many you expected. This is useful signal about scope drift.
 
 **6. Non-git directory**
-Run in a directory without git. AgentGuard should handle gracefully — no crash, snapshot step skipped with a clear message.
+Run in a directory without git. Ilum should handle gracefully — no crash, snapshot step skipped with a clear message.
 
 **7. CI / no-TTY**
 Run in an environment with no interactive terminal. CRITICAL incidents should terminate the process with a non-zero exit code.
 
 **What feedback is most useful right now:**
 
-- False positives: things AgentGuard flagged that were obviously fine
+- False positives: things Ilum flagged that were obviously fine
 - False negatives: risky things that ran without being caught
 - Crashes or unexpected exits
-- Agents or workflows where AgentGuard didn't work at all
+- Agents or workflows where Ilum didn't work at all
 - Friction: prompts that interrupted work in an annoying way
 
 **Where to report:** Open an issue at [github.com/Osva2023/Ilum](https://github.com/Osva2023/Ilum/issues). A short description of what you did and what happened is enough.
 
 ---
 
-## What AgentGuard does not do
+## What Ilum does not do
 
 - It is not an IDE plugin or editor extension
 - It does not replace code review
@@ -593,7 +593,7 @@ Run in an environment with no interactive terminal. CRITICAL incidents should te
 - It cannot revert cloud resources, database writes, or external API calls
 - It does not understand your intent — it detects patterns, not meaning
 
-Human judgment is still required. AgentGuard improves real-time visibility into autonomous agent behavior; it does not eliminate the need to pay attention.
+Human judgment is still required. Ilum improves real-time visibility into autonomous agent behavior; it does not eliminate the need to pay attention.
 
 ---
 
