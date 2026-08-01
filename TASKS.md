@@ -50,7 +50,8 @@
 **Files:** `tray/main.js`, `src/notifier.js`, IPC daemon↔tray  
 **Scope:** Enrutar las notificaciones del daemon a través de la app Electron del tray (que ya corre en el menu bar) usando la `Notification` API de Electron en vez de `osascript`. Así la notificación queda atribuida a "AgentGuard" (no a Script Editor / System Events) y su handler `click` puede abrir algo útil: enfocar el popup del tray o abrir el dashboard en `localhost:3000`. Requiere un canal IPC daemon→tray (p.ej. archivo/socket que el tray observa, o el daemon dispara la notificación si el tray está corriendo). Fallback a `osascript` (comportamiento actual) cuando el tray no está activo.  
 **Acceptance:** Click en una notificación de AgentGuard abre el dashboard (o el popup del tray), no Script Editor ni un no-op. Encaja con TASK-007/008.  
-**Status:** TODO
+**Status:** TODO  
+**Nota (evaluación 2026-07-30):** Tamaño real confirmado ≈ medio día, no se avanzó esta sesión. Requiere: (1) que la tray escriba su propio `~/.agentguard/tray.pid` al arrancar (igual que el daemon) para que `notifier.js` pueda saber si la tray está viva antes de elegir el canal; (2) un directorio/cola de notificaciones (p.ej. `~/.agentguard/tray-notify/*.json`) que la tray vigile (chokidar o `fs.watch`) y consuma con la `Notification` API de Electron, con el handler `click` abriendo el dashboard (`shell.openExternal`) o el popup (`togglePopup()`); (3) `sendSystemNotification` en `notifier.js` intentando el canal tray primero y cayendo a `osascript` solo si la tray no está viva. No se implementó porque el comportamiento de click de una notificación nativa de Electron no se puede verificar con tests automatizados — requiere lanzar la tray de verdad y hacer click en el banner, y no quería dejar una feature de UI a medio verificar.
 
 ---
 
@@ -84,8 +85,8 @@
 **Files:** `package.json`, `README.md`  
 **Scope:** Mergear dev → main. Revisar README una vez más (instrucciones de Telegram más visibles, instrucciones de tray más claras). Bump version a 1.0.0. `npm publish`. Tag en git.  
 **Acceptance:** `npm install -g ilum` instala v1.0.0. La página de npm muestra la versión correcta.  
-**Status:** POSTPONED  
-**Nota:** Pospuesto — publicar cuando Semana 2 esté completa.
+**Status:** DONE  
+**Nota:** El ticket quedó en POSTPONED en el board pero el paquete ya se había publicado en los hechos, como `ozilum` (no `ilum` — el nombre `ilum` nunca se registró en npm y sigue libre hoy). Eso dejó una inconsistencia real: el README instruía `npm install -g ilum`, que da 404. Resolución (2026-07-30): en vez de publicar un segundo paquete bajo `ilum` (duplicaría mantenimiento — habría que versionar y `npm publish` dos paquetes en paralelo), se corrigió `README.md` para instalar con `npm install -g ozilum`. La marca no se pierde: `package.json` ya define `bin: { ilum, agentguard }`, así que instalar `ozilum` deja igual el comando `ilum` en el `PATH`. Versión actual publicada: `ozilum@1.0.3`.
 
 ---
 
@@ -398,6 +399,41 @@ servidor central en Railway.
 
 ---
 
+### TASK-030 — BUG CRÍTICO: `main` revirtió el rebrand a Ilum y rompió el banner de versión
+**Epic:** Release / Estrategia  
+**Prioridad:** Alta  
+**Files:** `bin/agentguard`, `CLAUDE.md`, `TASKS.md`, `src/dashboard/public/index.html`, `tray/index.html`, `agentguard-server/dashboard.html`  
+**Scope:** Hallado al comparar `git diff main dev` durante el barrido de deuda técnica de TASK-006 (2026-07-30). El commit "merge: resolve conflicts dev → main" resolvió los conflictos tomando el lado de `main` en casi todos los hunks de branding, deshaciendo TASK-022 (rename a Ilum) en todo lo que ya está publicado: `src/dashboard/public/index.html`, `tray/index.html` y `agentguard-server/dashboard.html` en `main` vuelven a decir "AgentGuard" en `<title>`, logo y footer, mientras `dev` sí tiene "Ilum" correctamente. Peor: `bin/agentguard` en `main` **perdió** la lectura dinámica de versión desde `package.json` (que sí existe en `dev`) y quedó con `v1.0.0` **hardcodeado** en el banner de `--help` — hoy inconsistente con la versión realmente publicada (`ozilum@1.0.3`). `CLAUDE.md` y `TASKS.md` en `main` también dicen "AgentGuard — Guía/Task Board" en vez de "Ilum". En resumen: `main` (la base de lo publicado a npm) tiene una regresión real de UI/branding y un bug de versión, y `dev` está desalineado en sentido contrario (tenía `package.json` con `name:"ilum", version:"1.0.0"`, ya corregido en esta sesión — ver TASK-006).  
+**Acceptance:** `main` y `dev` muestran la misma versión y el mismo branding ("Ilum") en: banner de `--help`, dashboard web, dashboard de equipo, tray. El próximo merge `dev → main` no debe volver a perder estos cambios (revisar hunk por hunk, no aceptar "ours" a ciegas en conflictos de branding).  
+**Status:** TODO  
+**Nota:** No se tocó `bin/agentguard` en esta sesión por ser un archivo protegido (requiere revisión explícita). Se documenta acá para que la próxima sesión decida cómo reconciliar — probablemente rehacer el merge `dev → main` con más cuidado, o un commit puntual sobre `main` que traiga las 6 líneas de branding + la lectura dinámica de versión desde `dev`.
+
+---
+
+### TASK-031 — Deuda invisible: 13 archivos de test fuera de la cadena `npm test`
+**Epic:** Estabilización / Calidad  
+**Prioridad:** Alta  
+**Files:** `package.json`, `test/shell-daemon.test.js`  
+**Scope:** Hallado en el barrido de TODOs/deuda técnica (2026-07-30). 13 de los 35 archivos `test/*.test.js` existían en el repo pero nunca se agregaron a la cadena del script `test` en `package.json`, violando la convención explícita de `CLAUDE.md` ("Al agregar un test nuevo, añádelo a la cadena..."). Esto significa que `npm test` reportaba verde sin cubrir features reales con su propio test file: `audit-only`, `filewatcher-correlation`, `interceptor-command`, `logger`, `node-hook`, `pending-changes`, `policy-packs`, `preview`, `pty-correlation`, `sensitive`, `shell-daemon`, `snapshot-restore-file`, `telegram-listener`. Los 13 pasaban en un entorno limpio, pero `shell-daemon.test.js` fallaba de forma intermitente al ejecutarse **dentro de una sesión ya vigilada por AgentGuard** (como esta misma, vía el wrapper de shell del proyecto) — no por un bug del wrapper, sino porque `src/node-hook.cjs` re-inyecta `AGENTGUARD_SESSION_ID`/`SOCKET` cuando detecta que el caller los borró de `env` (protección anti-evasión diseñada a propósito), y el test simulaba "sin sesión" con `delete env.AGENTGUARD_SESSION_ID` en vez de un string vacío.  
+**Acceptance:** Los 13 archivos corren como parte de `npm test`. El test de "fail-open, sin sesión" en `shell-daemon.test.js` pasa igual corriendo dentro o fuera de una sesión de AgentGuard activa.  
+**Status:** DONE  
+**Nota:** `package.json` → los 13 archivos agregados a la cadena `test` (10 con `node --test`, y `pending-changes`/`snapshot-restore-file`/`telegram-listener` con `node` plano, siguiendo el estilo declarado en el header de cada archivo — "plain Node.js, no test runner"). `test/shell-daemon.test.js`: el caso "no session → fail-open" ahora usa `env.AGENTGUARD_SESSION_ID = ""` en vez de `delete`, para no disparar la re-inyección de `injectEnv()` en `node-hook.cjs` (que solo actúa sobre `== null`, no sobre string vacío) — el wrapper Go igual lo interpreta como "sin sesión" (`sessionID == ""`). Verificado: `npm test` da 0 fallas tanto en un shell limpio como corriendo dentro de esta misma sesión dogfooded. `package-lock.json` también regenerado (estaba con `name:"agentguard-dev", version:"0.3.0"` y sin el bin `ilum`, desalineado con el `package.json` corregido en TASK-006).
+
+---
+
+### TASK-032 — Deuda invisible: TODOs sin ticket + código de diagnóstico temporal sin remover
+**Epic:** Estabilización  
+**Prioridad:** Baja  
+**Files:** `src/decoder.js`, `src/correlation-rules.js`, `shell-wrapper/main.go`  
+**Scope:** Resto del barrido de TODOs (2026-07-30), sin acción tomada — quedan para priorizar:  
+1. `src/decoder.js:55` — TODO explícito: migrar los patrones de subtipo de archivo al set compartido de `src/sensitive.js` para que decoder y filewatcher/snapshot no puedan divergir.  
+2. `src/correlation-rules.js:24` — TODO explícito: `BUILD_ARTIFACT_PATHS` (exclusiones de mass-delete) debería ser configurable vía `agentguard.config.json` en vez de estar hardcodeado.  
+3. `shell-wrapper/main.go:62-72` — bloque de diagnóstico (`trace()` a `~/.agentguard/wrapper-trace.log` en cada invocación del wrapper) que el propio comentario marca como temporal: *"To remove once the hypothesis is confirmed, delete this block and the trace() calls in main()."* No quedó claro si la hipótesis (¿el agente rutea por `$SHELL`?) ya se confirmó en producción — no se tocó por no ser parte del scope pedido y por tratarse de lógica de intercepción activa.  
+**Acceptance:** Cada punto tiene una decisión: se convierte en ticket propio o se descarta explícitamente.  
+**Status:** TODO
+
+---
+
 ## MODO REMOTO — Tickets para ejecutar desde el teléfono
 *Estos tickets están diseñados para ser ejecutados en sesiones cortas de Claude Code remoto.
 Cada uno tiene scope acotado, archivos específicos, y criterio de éxito claro.*
@@ -434,5 +470,5 @@ Cada uno tiene scope acotado, archivos específicos, y criterio de éxito claro.
 
 ---
 
-*Última actualización: 2026-05-28*  
-*Versión actual: 0.3.0 → Target: 1.0.0*
+*Última actualización: 2026-07-30*  
+*Versión actual (publicada como `ozilum`): 1.0.3*

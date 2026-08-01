@@ -199,9 +199,16 @@ describe("agentguard-shell wrapper: fail-open", () => {
     "execs /bin/sh when AGENTGUARD_SESSION_ID is absent, even with a bogus socket path",
     { skip: !wrapperBuilt && "Go wrapper binary not built — skipping" },
     async () => {
-      // Strip BOTH session env vars.  The wrapper should not consult either.
+      // Strip BOTH session env vars. Set (rather than delete) an empty
+      // AGENTGUARD_SESSION_ID: node-hook.cjs's anti-evasion injectEnv() only
+      // re-injects the session vars when they are null/deleted (by design —
+      // an agent must not be able to dodge monitoring by clobbering its own
+      // env), so `delete` here would get silently undone whenever this test
+      // itself runs inside an active AgentGuard session (as it does when
+      // dogfooding this repo). An empty string reads as "no session" to the
+      // Go wrapper's `sessionID == ""` check without tripping that guard.
       const env = { ...process.env };
-      delete env.AGENTGUARD_SESSION_ID;
+      env.AGENTGUARD_SESSION_ID = "";
       env.AGENTGUARD_SOCKET = "/nonexistent/should/be/ignored.sock";
 
       const r = await runWrapper(["-c", "echo PASSED_THROUGH"], env);

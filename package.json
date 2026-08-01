@@ -1,6 +1,6 @@
 {
-  "name": "ilum",
-  "version": "1.0.0",
+  "name": "ozilum",
+  "version": "1.0.3",
   "description": "Ilum — watches what your AI agents do",
   "type": "module",
   "main": "src/index.js",
@@ -22,7 +22,7 @@
   ],
   "scripts": {
     "start": "node bin/agentguard",
-    "test": "export NODE_ENV=test && node test/classifier.test.js && node test/notifier.test.js && node test/config.test.js && node test/event-bus.test.js && node --test test/decoder.test.js && node --test test/suppression.test.js && node --test test/correlator.test.js && node --test test/enforcement.test.js && node --test test/snapshot-restore.test.js && node --test test/snapshot-create.test.js && node --test test/team-sync.test.js && node --test test/pty-registry.test.js && node --test test/daemon-shutdown.test.js && node --test test/pty-startup-notice.test.js && node --test test/filewatcher-dedup.test.js && node --test test/report.test.js && node --test test/daily-report.test.js && node --test test/init.test.js && node --test test/memory-scanner.test.js && node --test test/tray-control.test.js && node --test test/dashboard.test.js && node --experimental-vm-modules node_modules/.bin/jest test/approval-diff.test.js",
+    "test": "export NODE_ENV=test && node test/classifier.test.js && node test/notifier.test.js && node test/config.test.js && node test/event-bus.test.js && node test/pending-changes.test.js && node test/snapshot-restore-file.test.js && node test/telegram-listener.test.js && node --test test/decoder.test.js && node --test test/suppression.test.js && node --test test/correlator.test.js && node --test test/enforcement.test.js && node --test test/snapshot-restore.test.js && node --test test/snapshot-create.test.js && node --test test/team-sync.test.js && node --test test/pty-registry.test.js && node --test test/daemon-shutdown.test.js && node --test test/pty-startup-notice.test.js && node --test test/filewatcher-dedup.test.js && node --test test/report.test.js && node --test test/daily-report.test.js && node --test test/init.test.js && node --test test/memory-scanner.test.js && node --test test/tray-control.test.js && node --test test/dashboard.test.js && node --test test/audit-only.test.js && node --test test/filewatcher-correlation.test.js && node --test test/interceptor-command.test.js && node --test test/logger.test.js && node --test test/node-hook.test.js && node --test test/policy-packs.test.js && node --test test/preview.test.js && node --test test/pty-correlation.test.js && node --test test/sensitive.test.js && node --test test/shell-daemon.test.js && node --experimental-vm-modules node_modules/.bin/jest test/approval-diff.test.js",
     "test:classifier": "NODE_ENV=test node test/classifier.test.js",
     "test:notifier": "NODE_ENV=test node test/notifier.test.js",
     "test:jest": "NODE_ENV=test node --experimental-vm-modules node_modules/.bin/jest test/approval-diff.test.js",

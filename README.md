@@ -162,10 +162,10 @@ Snapshot is skipped when: the directory is not a git repository, the working tre
 **Requires Node.js 18 or later.** Git is strongly recommended — snapshot and rollback require it.
 
 ```bash
-npm install -g ilum
+npm install -g ozilum
 ```
 
-The CLI is published on npm as [`ilum`](https://www.npmjs.com/package/ilum). After install, the `ilum` command is on your `PATH` (the `agentguard` command is also installed as an alias for backward compatibility).
+The CLI is published on npm as [`ozilum`](https://www.npmjs.com/package/ozilum). After install, both the `ilum` and `agentguard` commands are on your `PATH` (`agentguard` is kept as an alias for backward compatibility).
 
 To work from source (track `main`, hack on rules, etc.):
 
