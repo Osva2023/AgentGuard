@@ -399,14 +399,24 @@ servidor central en Railway.
 
 ---
 
-### TASK-030 — BUG CRÍTICO: `main` revirtió el rebrand a Ilum y rompió el banner de versión
+### TASK-030 — NO REPRODUCIBLE: hallazgo original sobre `main` vs `dev` estaba invertido
 **Epic:** Release / Estrategia  
-**Prioridad:** Alta  
-**Files:** `bin/agentguard`, `CLAUDE.md`, `TASKS.md`, `src/dashboard/public/index.html`, `tray/index.html`, `agentguard-server/dashboard.html`  
-**Scope:** Hallado al comparar `git diff main dev` durante el barrido de deuda técnica de TASK-006 (2026-07-30). El commit "merge: resolve conflicts dev → main" resolvió los conflictos tomando el lado de `main` en casi todos los hunks de branding, deshaciendo TASK-022 (rename a Ilum) en todo lo que ya está publicado: `src/dashboard/public/index.html`, `tray/index.html` y `agentguard-server/dashboard.html` en `main` vuelven a decir "AgentGuard" en `<title>`, logo y footer, mientras `dev` sí tiene "Ilum" correctamente. Peor: `bin/agentguard` en `main` **perdió** la lectura dinámica de versión desde `package.json` (que sí existe en `dev`) y quedó con `v1.0.0` **hardcodeado** en el banner de `--help` — hoy inconsistente con la versión realmente publicada (`ozilum@1.0.3`). `CLAUDE.md` y `TASKS.md` en `main` también dicen "AgentGuard — Guía/Task Board" en vez de "Ilum". En resumen: `main` (la base de lo publicado a npm) tiene una regresión real de UI/branding y un bug de versión, y `dev` está desalineado en sentido contrario (tenía `package.json` con `name:"ilum", version:"1.0.0"`, ya corregido en esta sesión — ver TASK-006).  
-**Acceptance:** `main` y `dev` muestran la misma versión y el mismo branding ("Ilum") en: banner de `--help`, dashboard web, dashboard de equipo, tray. El próximo merge `dev → main` no debe volver a perder estos cambios (revisar hunk por hunk, no aceptar "ours" a ciegas en conflictos de branding).  
-**Status:** TODO  
-**Nota:** No se tocó `bin/agentguard` en esta sesión por ser un archivo protegido (requiere revisión explícita). Se documenta acá para que la próxima sesión decida cómo reconciliar — probablemente rehacer el merge `dev → main` con más cuidado, o un commit puntual sobre `main` que traiga las 6 líneas de branding + la lectura dinámica de versión desde `dev`.
+**Prioridad:** N/A  
+**Status:** NO REPRODUCIBLE (cerrado 2026-08-01)  
+**Hallazgo original (2026-07-30, incorrecto):** Se reportó que `main` había revertido el rebrand a Ilum (dashboard/tray/team-dashboard con `<title>`/footer en "AgentGuard") y que `bin/agentguard` en `main` tenía el banner de versión hardcodeado a `v1.0.0` en vez de leerlo dinámicamente de `package.json`.  
+**Por qué no se sostiene:** El hallazgo se basó en `git diff main dev -- <archivo>` leyendo mal la dirección del diff — se interpretaron las líneas `-` (contenido de `main`, el lado que se "resta" al pasar a `dev`) como si fueran de `main`, cuando en realidad `git diff A B` muestra `-` = contenido de `A` que `B` no tiene, `+` = contenido de `B` que `A` no tiene. Verificado el 2026-08-01 con `git cat-file -p <blob-hash>` sobre los blobs exactos de cada branch (sin pasar por `diff`, para eliminar cualquier ambigüedad de dirección) y confirmado con la tool `Read`:
+
+| Archivo | `main` (real) | `dev` (real) |
+|---|---|---|
+| `CLAUDE.md` L1 | `# Ilum — Guía para Claude Code` | `# AgentGuard — Guía para Claude Code` |
+| `TASKS.md` L1 | `# Ilum — Task Board` | `# AgentGuard — Task Board` |
+| `bin/agentguard` banner | `` v" + VERSION `` (dinámico) | `v1.0.0` (hardcodeado) |
+| `tray/index.html` `<title>` | `Ilum` | `AgentGuard` |
+| `src/dashboard/public/index.html` `<title>` | `Ilum Dashboard` | `AgentGuard Dashboard` |
+| `agentguard-server/dashboard.html` `<title>` | `Ilum Team Dashboard` | `AgentGuard Team Dashboard` |
+
+Es decir: **es exactamente al revés de lo reportado.** `main` (la base publicada) ya tiene el branding "Ilum" correcto y la lectura dinámica de versión. `dev` es el que quedó con el branding viejo "AgentGuard" y la versión hardcodeada — probablemente porque `dev` no absorbió de vuelta los cambios que sí se aplicaron sobre `main` en el merge del 2026-06-22 (`a384e67`/`16a480d`).  
+**Estado real (menor, no urgente):** `dev` está desalineado de `main` en branding/versión en esos 6 archivos. No bloquea nada hoy porque lo publicado a npm sale de `main`, que está bien. Si se quiere corregir, es sincronizar esos 6 archivos de `dev` con el contenido de `main` (o hacer merge `main → dev` una vez) — pendiente de decisión, no se tocó en esta sesión. `bin/agentguard` requeriría revisión explícita por ser archivo protegido.
 
 ---
 
